@@ -1,0 +1,113 @@
+@import "tailwindcss";
+@import "vant/lib/index.css" layer(base);
+
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: pan-y;
+    overflow-x: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    overflow-x: hidden;
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* Vant 主题对齐（浮层 + 组件） */
+:root {
+  --van-primary-color: #07C160;
+  --van-success-color: #07C160;
+}
+
+/* ===== Vant 组件样式覆盖（贴近现有设计）===== */
+
+/* Button (van-button)：图标+文字在 __text 内一行排列、不换行、带间距 */
+.custom-button .van-button__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Input (van-field)：还原 h-12 / rounded-xl / gray-200 边框 / 绿色聚焦 */
+.custom-input.van-cell {
+  box-sizing: border-box;
+  height: 48px;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.custom-input .van-field__body { width: 100%; height: 100%; }
+.custom-input .van-field__control {
+  height: 100%;
+  padding: 0 16px;
+  font-size: 16px;
+  color: #111827;
+}
+.custom-input .van-field__control::placeholder { color: #9ca3af; }
+.custom-input.van-cell:focus-within {
+  border-color: #07C160;
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.2);
+}
+.custom-input.van-cell--disabled { opacity: 0.5; }
+
+/* NavBar (van-nav-bar)：还原 h-14 / 半透明白底毛玻璃 / 标题色 */
+.custom-nav.van-nav-bar {
+  --van-nav-bar-height: 56px;
+  --van-nav-bar-title-font-size: 17px;
+  background: rgba(255, 255, 255, 0.8);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(243, 244, 246, 0.5);
+}
+.custom-nav .van-nav-bar__content { height: 56px; }
+.custom-nav .van-nav-bar__title { color: #111827; font-weight: 500; }
+.custom-nav .van-nav-bar__left,
+.custom-nav .van-nav-bar__right { padding: 0 8px; }
+
+/* Tabbar (van-tabbar)：还原 h-[72px] 底部导航 */
+.custom-tabbar.van-tabbar {
+  --van-tabbar-z-index: 50;
+  height: 72px;
+  background: #fff;
+  border-top: 1px solid #f3f4f6;
+}
+.custom-tabbar .van-tabbar-item { color: #9ca3af; }
+.custom-tabbar .van-tabbar-item--active { color: #07C160; }
+.custom-tabbar .van-tabbar-item__text { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; }
+.custom-tabbar.tabbar-orange .van-tabbar-item--active { color: #FF976A; }
+
+/* Tabs (van-tabs)：还原下划线 tab */
+.custom-tabs.van-tabs { background: transparent; }
+.custom-tabs .van-tabs__wrap { height: 44px; background: transparent; }
+.custom-tabs .van-tabs__nav--line { box-shadow: none; background: transparent; border-bottom: 1px solid #f3f4f6; }
+.custom-tabs .van-tab { font-size: 14px; font-weight: 700; color: #6b7280; padding: 0 12px; flex: 0 0 auto; }
+.custom-tabs .van-tab--active { color: #07C160; }
+.custom-tabs .van-tabs__line { background: #07C160; height: 2px; border-radius: 2px; bottom: 0; }
+
+/* Popup (van-popup)：还原圆角白卡 */
+.custom-popup.van-popup--center { border-radius: 16px; max-width: 24rem; width: calc(100% - 2rem); }
+.custom-popup .van-popup__close-icon { color: #9ca3af; font-size: 20px; padding: 12px; }
+
+/* Checkbox (van-checkbox) */
+.custom-checkbox.van-checkbox { --van-checkbox-checked-icon-color: #07C160; --van-checkbox-size: 16px; align-items: center; }
+.custom-checkbox .van-checkbox__label { font-size: 12px; color: #9ca3af; margin-left: 6px; line-height: 1.4; }
+.custom-checkbox.cb-orange { --van-checkbox-checked-icon-color: #FF976A; }
+.custom-radio-group { display: flex; flex-wrap: wrap; gap: 16px; }
+.custom-checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Radio (van-radio) */
+.custom-radio.van-radio { --van-radio-checked-icon-color: #07C160; --van-radio-size: 16px; align-items: center; }
+.custom-radio .van-radio__label { font-size: 14px; color: #374151; margin-left: 6px; }
