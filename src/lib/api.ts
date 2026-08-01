@@ -31,8 +31,11 @@ import type {
   RewardClaim,
   MealTimeConfig,
   MetricConfig,
+  Camp,
+  Account,
+  PointProduct,
+  PointExchangeRecord,
 } from '../types';
-import type { MetricValue } from './medicalData';
 import {
   MOCK_STUDENTS,
   MOCK_DIET_RECORDS,
@@ -43,8 +46,10 @@ import {
   MOCK_REWARD_CLAIMS,
   DEFAULT_MEAL_TIME_CONFIG,
   DEFAULT_METRIC_CONFIGS,
-  MOCK_METRIC_VALUES,
-  MOCK_STUDENT_METRIC_VALUES,
+  MOCK_CAMPS,
+  MOCK_ACCOUNTS,
+  MOCK_POINT_PRODUCTS,
+  MOCK_POINT_EXCHANGES,
 } from '../mock/data';
 
 // ============ 联调配置 ============
@@ -236,22 +241,6 @@ export async function updateWeightRecord(id: string, updates: Partial<WeightReco
   });
 }
 
-/**
- * 获取指定学员的体重打卡记录
- * GET /weight-records?studentId={studentId}
- *
- * 营养师端学员档案使用此接口获取学员体重数据。
- * 学员端打卡后，数据通过 store -> api.createWeightRecord -> 后端，
- * 营养师端 init() 或手动刷新即可同步最新数据。
- *
- * @param studentId  学员ID
- * @returns WeightRecord[] - 按 date 升序
- */
-export async function getWeightRecordsByStudent(studentId: string): Promise<WeightRecord[]> {
-  if (USE_MOCK) return MOCK_WEIGHT_RECORDS.filter((r) => r.studentId === studentId);
-  return request<WeightRecord[]>(`/weight-records?studentId=${encodeURIComponent(studentId)}`);
-}
-
 // ============ 教练活动（图文/视频） ============
 
 /**
@@ -388,66 +377,6 @@ export async function updateRewardClaim(id: string, updates: Partial<RewardClaim
   });
 }
 
-// ============ 餐时配置 ============
-
-/**
- * 获取餐时配置（各餐打卡时间窗口）
- * GET /meal-time-config
- *
- * @returns MealTimeConfig — breakfast/lunch/dinner/snack 各含 { start, end, enabled }
- *
- * 业务规则: 饮食打卡时校验当前时间是否在对应餐时窗口内。
- *           enabled=false 时该餐不限制时间。
- */
-export async function getMealTimeConfig(): Promise<MealTimeConfig> {
-  if (USE_MOCK) return DEFAULT_MEAL_TIME_CONFIG;
-  return request<MealTimeConfig>('/meal-time-config');
-}
-
-/**
- * 更新餐时配置
- * PUT /meal-time-config
- *
- * @body  MealTimeConfig — 完整配置
- * @returns MealTimeConfig
- */
-export async function updateMealTimeConfigApi(config: MealTimeConfig): Promise<MealTimeConfig> {
-  if (USE_MOCK) return config;
-  return request<MealTimeConfig>('/meal-time-config', {
-    method: 'PUT',
-    body: JSON.stringify(config),
-  });
-}
-
-// ============ 自查问卷 ============
-
-/**
- * 获取已提交的自查问卷
- * GET /questionnaire
- */
-export async function getQuestionnaire(): Promise<any> {
-  if (USE_MOCK) {
-    const saved = localStorage.getItem('submitted_questionnaire') || localStorage.getItem('draft_questionnaire');
-    return saved ? JSON.parse(saved) : null;
-  }
-  return request<any>('/questionnaire');
-}
-
-/**
- * 提交自查问卷
- * POST /questionnaire
- */
-export async function saveQuestionnaire(data: any): Promise<any> {
-  if (USE_MOCK) {
-    localStorage.setItem('submitted_questionnaire', JSON.stringify(data));
-    return data;
-  }
-  return request<any>('/questionnaire', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
 // ============ 健康指标配置 ============
 
 /**
@@ -502,57 +431,6 @@ export async function deleteMetricConfig(id: string): Promise<void> {
   return request<void>(`/metric-configs/${id}`, { method: 'DELETE' });
 }
 
-// ============ 学员指标前后数值 ============
-
-/**
- * 获取指定学员的指标前后检测数值
- * GET /metric-values?studentId={studentId}
- *
- * @param studentId  学员ID
- * @returns Record<string, MetricValue> - key = configId, value = { beforeValue, afterValue }
- *
- * 业务规则:
- *   - beforeValue = 开营前检测值, afterValue = 结营后检测值
- *   - 数值型指标参与变化量/改善率计算, 字符串型仅展示
- *   - "有效学员" = 至少一项"身体测量数据"分类指标同时有 beforeValue 和 afterValue（数值型）
- */
-export async function getMetricValues(studentId: string): Promise<Record<string, MetricValue>> {
-  if (USE_MOCK) {
-    return MOCK_STUDENT_METRIC_VALUES[studentId] || MOCK_METRIC_VALUES;
-  }
-  return request<Record<string, MetricValue>>(`/metric-values?studentId=${encodeURIComponent(studentId)}`);
-}
-
-/**
- * 获取全部学员的指标前后检测数值（营养师端结营统计用）
- * GET /metric-values
- *
- * @returns Record<string, Record<string, MetricValue>> - key = studentId, value = { configId: MetricValue }
- */
-export async function getAllMetricValues(): Promise<Record<string, Record<string, MetricValue>>> {
-  if (USE_MOCK) return MOCK_STUDENT_METRIC_VALUES;
-  return request<Record<string, Record<string, MetricValue>>>('/metric-values');
-}
-
-/**
- * 更新学员指标检测数值（营养师在学员档案->基础医疗Tab维护）
- * PUT /metric-values/:studentId
- *
- * @param studentId  学员ID
- * @param values     完整的指标数值对象 { [configId]: { beforeValue, afterValue } }
- * @returns 更新后的完整数值对象
- */
-export async function updateMetricValues(
-  studentId: string,
-  values: Record<string, MetricValue>,
-): Promise<Record<string, MetricValue>> {
-  if (USE_MOCK) return values;
-  return request<Record<string, MetricValue>>(`/metric-values/${encodeURIComponent(studentId)}`, {
-    method: 'PUT',
-    body: JSON.stringify(values),
-  });
-}
-
 // ============ 文件上传 ============
 
 /**
@@ -573,4 +451,276 @@ export async function uploadFile(file: File): Promise<string> {
   if (!res.ok) throw new Error('upload failed');
   const data = await res.json();
   return data.url as string;
+}
+
+// ============ 营期管理 ============
+
+/**
+ * 获取所有营期列表
+ * GET /camps
+ *
+ * @returns Camp[] - 按 startDate 降序
+ */
+export async function getCamps(): Promise<Camp[]> {
+  if (USE_MOCK) return MOCK_CAMPS;
+  return request<Camp[]>('/camps');
+}
+
+/**
+ * 新增营期
+ * POST /camps
+ */
+export async function createCamp(camp: Camp): Promise<Camp> {
+  if (USE_MOCK) return camp;
+  return request<Camp>('/camps', {
+    method: 'POST',
+    body: JSON.stringify(camp),
+  });
+}
+
+/**
+ * 更新营期
+ * PATCH /camps/:id
+ */
+export async function updateCamp(id: string, updates: Partial<Camp>): Promise<Camp> {
+  if (USE_MOCK) return { id, ...updates } as Camp;
+  return request<Camp>(`/camps/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+/**
+ * 删除营期
+ * DELETE /camps/:id
+ */
+export async function deleteCamp(id: string): Promise<void> {
+  if (USE_MOCK) return;
+  return request<void>(`/camps/${id}`, { method: 'DELETE' });
+}
+
+// ============ 账户管理 ============
+
+/**
+ * 获取所有账户列表
+ * GET /accounts
+ *
+ * 业务规则: 只有配置了手机号的账户才能登录。
+ *           营养师=管理员，第一批数据库预维护，后续在营养师端管理。
+ *           学员需关联营期（campIds），每期排名相互独立。
+ */
+export async function getAccounts(): Promise<Account[]> {
+  if (USE_MOCK) return MOCK_ACCOUNTS;
+  return request<Account[]>('/accounts');
+}
+
+/**
+ * 新增账户（手机号唯一）
+ * POST /accounts
+ */
+export async function createAccount(account: Account): Promise<Account> {
+  if (USE_MOCK) return account;
+  return request<Account>('/accounts', {
+    method: 'POST',
+    body: JSON.stringify(account),
+  });
+}
+
+/**
+ * 更新账户
+ * PATCH /accounts/:id
+ */
+export async function updateAccount(id: string, updates: Partial<Account>): Promise<Account> {
+  if (USE_MOCK) return { id, ...updates } as Account;
+  return request<Account>(`/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+/**
+ * 删除账户
+ * DELETE /accounts/:id
+ */
+export async function deleteAccount(id: string): Promise<void> {
+  if (USE_MOCK) return;
+  return request<void>(`/accounts/${id}`, { method: 'DELETE' });
+}
+
+// ============ 积分商城商品 ============
+
+/**
+ * 获取所有积分商城商品
+ * GET /point-products
+ *
+ * @returns PointProduct[] - 仅 active=true 的商品对学员可见
+ */
+export async function getPointProducts(): Promise<PointProduct[]> {
+  if (USE_MOCK) return MOCK_POINT_PRODUCTS;
+  return request<PointProduct[]>('/point-products');
+}
+
+/**
+ * 新增积分商城商品（营养师配置）
+ * POST /point-products
+ */
+export async function createPointProduct(product: PointProduct): Promise<PointProduct> {
+  if (USE_MOCK) return product;
+  return request<PointProduct>('/point-products', {
+    method: 'POST',
+    body: JSON.stringify(product),
+  });
+}
+
+/**
+ * 更新积分商城商品（修改价格/库存/上下架等）
+ * PATCH /point-products/:id
+ */
+export async function updatePointProduct(id: string, updates: Partial<PointProduct>): Promise<PointProduct> {
+  if (USE_MOCK) return { id, ...updates } as PointProduct;
+  return request<PointProduct>(`/point-products/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+/**
+ * 删除积分商城商品
+ * DELETE /point-products/:id
+ */
+export async function deletePointProduct(id: string): Promise<void> {
+  if (USE_MOCK) return;
+  return request<void>(`/point-products/${id}`, { method: 'DELETE' });
+}
+
+// ============ 积分兑换记录 ============
+
+/**
+ * 获取所有积分兑换记录
+ * GET /point-exchanges
+ *
+ * @returns PointExchangeRecord[] - 前端按 studentId 过滤当前用户的记录
+ */
+export async function getPointExchanges(): Promise<PointExchangeRecord[]> {
+  if (USE_MOCK) return MOCK_POINT_EXCHANGES;
+  return request<PointExchangeRecord[]>('/point-exchanges');
+}
+
+/**
+ * 创建积分兑换记录（学员兑换商品）
+ * POST /point-exchanges
+ *
+ * @body  PointExchangeRecord - { studentId, productId, pointsSpent, deliveryMethod, recipientInfo, status: 'pending' }
+ * @returns PointExchangeRecord
+ *
+ * 业务规则:
+ *   1. 学员可用积分 >= product.pointsRequired（前端已校验）
+ *   2. 商品库存 > 0（前端已校验）
+ *   3. 后端创建记录后，应同时扣减对应商品的 stock
+ */
+export async function createPointExchange(record: PointExchangeRecord): Promise<PointExchangeRecord> {
+  if (USE_MOCK) return record;
+  return request<PointExchangeRecord>('/point-exchanges', {
+    method: 'POST',
+    body: JSON.stringify(record),
+  });
+}
+
+/**
+ * 更新兑换记录（营养师发货 / 学员取消）
+ * PATCH /point-exchanges/:id
+ *
+ * @body  Partial<PointExchangeRecord> - 发货传 { status: 'fulfilled', trackingNumber, shipDate }
+ *        取消传 { status: 'cancelled' }，后端应恢复商品库存 + 返还积分
+ */
+export async function updatePointExchange(id: string, updates: Partial<PointExchangeRecord>): Promise<PointExchangeRecord> {
+  if (USE_MOCK) return { id, ...updates } as PointExchangeRecord;
+  return request<PointExchangeRecord>(`/point-exchanges/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+// ============ 活动配置（按营期） ============
+
+/**
+ * 获取指定营期的趣味活动配置
+ * GET /activity-config/:campId
+ *
+ * @returns ActivityConfig - { weightMilestone, weeklyChallenge, luckyDraw, pointsMall, ... }
+ *
+ * 业务规则: 营养师在配置页开关各活动；学员端按此展示对应活动入口。
+ */
+export async function getActivityConfig(campId: string): Promise<Record<string, unknown>> {
+  if (USE_MOCK) return {};
+  return request<Record<string, unknown>>(`/activity-config/${campId}`);
+}
+
+/**
+ * 更新指定营期的趣味活动配置
+ * PUT /activity-config/:campId
+ *
+ * @body  ActivityConfig - 完整配置
+ */
+export async function updateActivityConfigApi(campId: string, config: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (USE_MOCK) return config;
+  return request<Record<string, unknown>>(`/activity-config/${campId}`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+// ============ 结营寄语 ============
+
+/**
+ * 获取指定营期+学员的结营寄语
+ * GET /camp-messages/:campId/:studentId
+ *
+ * @returns string - 寄语文本（空字符串表示未填写）
+ */
+export async function getCampMessage(campId: string, studentId: string): Promise<string> {
+  if (USE_MOCK) return '';
+  const res = await request<{ text: string }>(`/camp-messages/${campId}/${studentId}`);
+  return res.text;
+}
+
+/**
+ * 保存结营寄语
+ * PUT /camp-messages/:campId/:studentId
+ *
+ * @body  { text: string }
+ */
+export async function saveCampMessage(campId: string, studentId: string, text: string): Promise<void> {
+  if (USE_MOCK) return;
+  return request<void>(`/camp-messages/${campId}/${studentId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ text }),
+  });
+}
+
+// ============ 餐时配置（按营期） ============
+
+/**
+ * 获取指定营期的餐时配置
+ * GET /meal-time-config/:campId
+ *
+ * @returns MealTimeConfig - breakfast/lunch/dinner/snack 各含 { start, end, enabled }
+ */
+export async function getMealTimeConfigByCamp(campId: string): Promise<MealTimeConfig> {
+  if (USE_MOCK) return DEFAULT_MEAL_TIME_CONFIG;
+  return request<MealTimeConfig>(`/meal-time-config/${campId}`);
+}
+
+/**
+ * 更新指定营期的餐时配置
+ * PUT /meal-time-config/:campId
+ *
+ * @body  MealTimeConfig - 完整配置
+ */
+export async function updateMealTimeConfigByCamp(campId: string, config: MealTimeConfig): Promise<MealTimeConfig> {
+  if (USE_MOCK) return config;
+  return request<MealTimeConfig>(`/meal-time-config/${campId}`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
 }

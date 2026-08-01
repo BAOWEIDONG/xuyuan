@@ -41,6 +41,12 @@ export async function compressVideo(
     return file;
   }
 
+  // iOS WKWebView 不支持 MediaRecorder / canvas.captureStream，直接返回原文件
+  if (typeof MediaRecorder === 'undefined' || typeof HTMLCanvasElement.prototype.captureStream !== 'function') {
+    onProgress?.(1);
+    return file;
+  }
+
   // 创建 video 元素加载原始视频
   const video = document.createElement('video');
   video.src = URL.createObjectURL(file);

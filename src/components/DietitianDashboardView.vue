@@ -1,39 +1,63 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useAppStore } from '../store/app';
-import { MOCK_STUDENTS } from '../mock/data';
-import { NavBar, Card } from './ui';
-import { Users, UserCircle, LogOut, CheckCircle, XCircle, Gift, Clock, Settings, ChevronDown, ChevronUp, Search, X, BarChart3 } from 'lucide-vue-next';
-import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem } from 'vant';
+import { Card } from './ui';
+import { Users, UserCircle, LogOut, CheckCircle, XCircle, Search, X, FileText, Settings, ChevronDown } from 'lucide-vue-next';
+import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem, Popup as VanPopup } from 'vant';
 import { rankStudents } from '../lib/scoring';
 
 const store = useAppStore();
 
 const activeTab = ref<'incomplete' | 'completed'>('incomplete');
-const showConfig = ref(false);
 const searchQuery = ref('');
 
+// ─── 营期切换 ───
+const showCampPicker = ref(false);
+
+const availableCamps = computed(() => store.camps);
+const activeCampId = computed(() => store.selectedCampId); // null = 全部营期
+const activeCampName = computed(() => {
+  if (!activeCampId.value) return '全部营期';
+  return store.camps.find((c) => c.id === activeCampId.value)?.name || '全部营期';
+});
+
+// 按营期过滤学员（null = 全部活跃学员）
+const campStudents = computed(() => {
+  if (!activeCampId.value) return store.getAllStudents();
+  return store.getStudentsByCamp(activeCampId.value);
+});
+
+// 按营期过滤打卡记录（null = 全部记录）
+const campDietRecords = computed(() => activeCampId.value ? store.getCampDietRecords(activeCampId.value) : store.dietRecords);
+const campWeightRecords = computed(() => activeCampId.value ? store.getCampWeightRecords(activeCampId.value) : store.weightRecords);
+const campExerciseRecords = computed(() => activeCampId.value ? store.getCampExerciseRecords(activeCampId.value) : store.exerciseRecords);
+const campManualRecords = computed(() => activeCampId.value ? store.getCampManualScoreRecords(activeCampId.value) : store.manualScoreRecords);
+
 const unannotatedCount = computed(() => {
-  const diet = store.dietRecords.filter((r) => !r.dietitianComment && r.dietitianScore == null).length;
-  const weight = store.weightRecords.filter((r) => !r.dietitianComment).length;
-  const exercise = store.exerciseRecords.filter((r) => !r.dietitianComment).length;
+  const diet = campDietRecords.value.filter((r) => !r.dietitianComment && r.dietitianScore == null).length;
+  const weight = campWeightRecords.value.filter((r) => !r.dietitianComment).length;
+  const exercise = campExerciseRecords.value.filter((r) => !r.dietitianComment).length;
   return diet + weight + exercise;
 });
 
-const todayStr = new Date().toISOString().split('T')[0];
+const _now = new Date();
+const todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
 
-const rankedStudents = computed(() => rankStudents(MOCK_STUDENTS, store.dietRecords, store.exerciseRecords));
+const rankedStudents = computed(() => {
+  if (campStudents.value.length === 0) return [];
+  return rankStudents(campStudents.value, campDietRecords.value, campExerciseRecords.value, campManualRecords.value);
+});
 
 const studentsStatus = computed(() =>
-  MOCK_STUDENTS.map((student) => {
-    const studentDiets = store.dietRecords.filter((r) => (r.studentId === student.id || r.studentId === undefined) && r.date.startsWith(todayStr));
-    const studentExercises = store.exerciseRecords.filter((r) => r.date.startsWith(todayStr));
+  campStudents.value.map((student) => {
+    const studentDiets = campDietRecords.value.filter((r) => r.studentId === student.id && r.date.startsWith(todayStr));
+    const studentExercises = campExerciseRecords.value.filter((r) => r.studentId === student.id && r.date.startsWith(todayStr));
 
     const hasBreakfast = studentDiets.some((d) => d.meal === 'breakfast');
     const hasLunch = studentDiets.some((d) => d.meal === 'lunch');
     const hasDinner = studentDiets.some((d) => d.meal === 'dinner');
     const hasExercise = studentExercises.some((e) => e.studentId === student.id);
-    const hasWeight = store.weightRecords.some((w) => (w.studentId === student.id || w.studentId === undefined) && w.date.startsWith(todayStr));
+    const hasWeight = campWeightRecords.value.some((w) => w.studentId === student.id && w.date.startsWith(todayStr));
 
     const missing: string[] = [];
     if (!hasBreakfast) missing.push('早餐');
@@ -83,8 +107,8 @@ const maskPhone = (phone: string) => phone.replace(/(\d{3})\d{4}(\d{4})/, '$1***
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-20 font-sans">
-    <div class="pt-12 px-6 pb-6 bg-gradient-to-b from-[#FF976A]/10 to-[#F7F8FA]">
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-24 font-sans">
+    <div class="pt-[calc(env(safe-area-inset-top)+2.5rem)] px-6 pb-6 bg-gradient-to-b from-[#FF976A]/10 to-[#F7F8FA]">
       <div class="flex justify-end mb-2">
         <button @click="store.logout()" class="text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1 text-xs bg-white/50 px-2 py-1 rounded-full backdrop-blur-sm">
           <LogOut class="h-3 w-3" /> 退出
@@ -96,117 +120,30 @@ const maskPhone = (phone: string) => phone.replace(/(\d{3})\d{4}(\d{4})/, '$1***
         </div>
         <div>
           <h2 class="text-xl font-bold text-gray-900">营养师您好，{{ store.user?.name || '专家' }}</h2>
-          <p class="text-xs font-bold text-[#FF976A] uppercase tracking-wider mt-1">您当前负责管理 {{ MOCK_STUDENTS.length }} 名学员</p>
+          <p class="text-xs font-bold text-[#FF976A] uppercase tracking-wider mt-1">您当前负责管理 {{ campStudents.length }} 名学员</p>
         </div>
       </div>
     </div>
 
-    <div class="flex-1 px-5 space-y-6 relative -mt-2">
-      <div class="grid grid-cols-2 gap-4">
-        <Card
-          class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm"
-          @click="store.setCurrentView('dietitian-unannotated-list')"
+    <div class="flex-1 px-5 space-y-4 relative -mt-2">
+      <!-- 营期切换 + 总排名入口 -->
+      <div class="flex items-center gap-2 mb-1">
+        <button
+          @click="showCampPicker = true"
+          class="flex items-center gap-1.5 px-3 py-2 bg-white rounded-xl border border-gray-200 text-sm font-medium text-gray-700 active:bg-gray-50 shadow-sm"
         >
-          <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-            <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-            待批注
-          </div>
-          <div class="text-[10px] text-gray-500 mb-2">{{ unannotatedCount > 0 ? `有 ${unannotatedCount} 条记录` : '已全部批注' }}</div>
-          <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-            {{ unannotatedCount > 0 ? '去处理' : '查看' }} <span class="text-sm leading-none ml-0.5">›</span>
-          </div>
-        </Card>
-
-        <Card
-          class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm"
-          @click="store.setCurrentView('ranking')"
-        >
-          <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-            <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-            总排名榜单
-          </div>
-          <div class="text-[10px] text-gray-500 mb-2">查看并导出积分数据</div>
-          <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-            去查看 <span class="text-sm leading-none ml-0.5">›</span>
-          </div>
-        </Card>
-      </div>
-
-      <!-- Config section (collapsible) -->
-      <div>
-        <button @click="showConfig = !showConfig" class="w-full flex items-center justify-between py-2 px-1 text-sm font-bold text-gray-500">
-          <span class="flex items-center gap-1.5">
-            <Settings class="w-4 h-4" />
-            管理配置
-          </span>
-          <component :is="showConfig ? ChevronUp : ChevronDown" class="w-4 h-4 transition-transform" />
+          {{ activeCampName }}
+          <ChevronDown class="w-4 h-4 text-gray-400" />
         </button>
-
-        <div v-if="showConfig" class="grid grid-cols-2 gap-4 mt-2">
-          <Card class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm" @click="store.setCurrentView('reward-manage')">
-            <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-              <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-              奖励管理
-            </div>
-            <div class="text-[10px] text-gray-500 mb-2">领取记录与发货</div>
-            <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-              去处理 <span class="text-sm leading-none ml-0.5">›</span>
-            </div>
-          </Card>
-          <Card class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm" @click="store.setCurrentView('reward-config')">
-            <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-              <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-              奖励配置
-            </div>
-            <div class="text-[10px] text-gray-500 mb-2">礼品阶梯与库存</div>
-            <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-              去配置 <span class="text-sm leading-none ml-0.5">›</span>
-            </div>
-          </Card>
-          <Card class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm" @click="store.setCurrentView('meal-time-config')">
-            <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-              <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-              打卡时间
-            </div>
-            <div class="text-[10px] text-gray-500 mb-2">每餐打卡时间区间</div>
-            <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-              去配置 <span class="text-sm leading-none ml-0.5">›</span>
-            </div>
-          </Card>
-          <Card class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm" @click="store.setCurrentView('metric-config')">
-            <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-              <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-              指标配置
-            </div>
-            <div class="text-[10px] text-gray-500 mb-2">健康档案体检指标项</div>
-            <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-              去配置 <span class="text-sm leading-none ml-0.5">›</span>
-            </div>
-          </Card>
-          <Card class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm" @click="store.setCurrentView('camp-summary')">
-            <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-              <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-              结营统计
-            </div>
-            <div class="text-[10px] text-gray-500 mb-2">学员数据变化与打卡频率</div>
-            <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-              查看统计 <span class="text-sm leading-none ml-0.5">›</span>
-            </div>
-          </Card>
-          <Card class="flex flex-col justify-center p-4 bg-white border border-[#FF976A]/20 cursor-pointer hover:shadow-md transition-shadow shadow-sm" @click="store.setCurrentView('activity-admin')">
-            <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
-              <div class="w-2 h-2 rounded-full bg-[#FF976A]"></div>
-              趣味活动
-            </div>
-            <div class="text-[10px] text-gray-500 mb-2">活动开关与达标看板</div>
-            <div class="text-[#FF976A] font-bold flex items-center gap-1 text-[11px] bg-orange-50 px-2 py-1 rounded-lg w-fit">
-              去管理 <span class="text-sm leading-none ml-0.5">›</span>
-            </div>
-          </Card>
-        </div>
+        <span class="text-xs text-gray-400">{{ campStudents.length }} 名学员</span>
+        <button
+          @click="store.setCurrentView('ranking')"
+          class="ml-auto text-xs font-medium text-[#FF976A] active:opacity-70"
+        >
+          总排名 ›
+        </button>
       </div>
 
-      <div>
         <!-- 搜索框 -->
         <div class="relative mb-4">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -256,7 +193,7 @@ const maskPhone = (phone: string) => phone.replace(/(\d{3})\d{4}(\d{4})/, '$1***
                 </div>
                 <div>
                   <div class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-2">
-                    {{ student.name }}
+                    {{ student.name || '未填写' }}
                     <span class="text-[10px] font-medium bg-[#FF976A]/10 text-[#FF976A] px-1.5 py-0.5 rounded">
                       总排名第{{ student.rank }}位 / {{ student.totalScore }}分
                     </span>
@@ -277,15 +214,71 @@ const maskPhone = (phone: string) => phone.replace(/(\d{3})\d{4}(\d{4})/, '$1***
           </template>
           <div v-else class="text-center text-xs text-gray-400 py-4 bg-white rounded-xl border border-gray-100">{{ emptyText }}</div>
         </div>
-      </div>
     </div>
 
     <!-- Bottom Nav (Vant Tabbar) -->
     <VanTabbar class="custom-tabbar tabbar-orange" :model-value="0">
       <VanTabbarItem>
         <template #icon><Users class="h-6 w-6" /></template>
-        工作台
+        首页
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('dietitian-unannotated-list')" :badge="unannotatedCount > 0 ? unannotatedCount : undefined">
+        <template #icon><FileText class="h-6 w-6" /></template>
+        批注
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('dietitian-config')">
+        <template #icon><Settings class="h-6 w-6" /></template>
+        配置
       </VanTabbarItem>
     </VanTabbar>
+
+    <!-- 营期选择弹窗 -->
+    <VanPopup v-model:show="showCampPicker" position="bottom" round class="custom-popup">
+      <div class="p-4">
+        <h3 class="font-bold text-gray-900 text-base mb-3 text-center">选择营期</h3>
+        <div class="space-y-2">
+          <button
+            @click="store.selectedCampId = null; showCampPicker = false"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              !activeCampId
+                ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">全部营期</span>
+            <span class="text-xs text-gray-400">{{ store.getAllStudents().length }}人</span>
+          </button>
+          <button
+            v-for="camp in availableCamps"
+            :key="camp.id"
+            @click="store.selectedCampId = camp.id; showCampPicker = false"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              activeCampId === camp.id
+                ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">{{ camp.name }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-400">{{ store.getStudentsByCamp(camp.id).length }}人</span>
+              <span
+                v-if="camp.status === 'active'"
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600"
+              >进行中</span>
+              <span
+                v-else-if="camp.status === 'ended'"
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+              >已结束</span>
+              <span
+                v-else
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500"
+              >未开始</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </VanPopup>
   </div>
 </template>

@@ -1,27 +1,72 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useAppStore } from '../store/app';
-import { MOCK_STUDENTS } from '../mock/data';
 import { NavBar, Card } from './ui';
 import { rankStudents, rankStudentsThisWeek, getCurrentWeekRange } from '../lib/scoring';
-import { Trophy, Download, ChevronRight, Info, RefreshCw } from 'lucide-vue-next';
+import { calculateDietScore, calculateExerciseScore, calculateTotalScore, calculateManualScore } from '../lib/scoring';
+import { Trophy, Download, ChevronRight, Info, RefreshCw, ChevronDown, TrendingUp, TrendingDown, Minus, Heart } from 'lucide-vue-next';
 import { Popup as VanPopup, showToast } from 'vant';
+import { format } from 'date-fns';
 
 const store = useAppStore();
 const highlightedId = ref<string | null>(null);
 const showRules = ref(false);
 const isRefreshing = ref(false);
 
-// 总榜 / 周榜切换（仅展示维度，计分规则不变）
-const rankMode = ref<'total' | 'week'>('total');
+// 总榜 / 进步榜切换
+const rankMode = ref<'total' | 'progress'>('total');
 
-// 当前自然周日期范围（周一~周日），用于周榜展示
-const weekRangeText = computed(() => {
-  const { mondayStr, sundayStr } = getCurrentWeekRange();
-  const [, m1, d1] = mondayStr.split('-');
-  const [, m2, d2] = sundayStr.split('-');
-  return `${parseInt(m1)}月${parseInt(d1)}日 - ${parseInt(m2)}月${parseInt(d2)}日`;
+// ─── 营期选择 ───
+// 学员端：显示自己所属的营期列表（多期可切换）
+// 营养师端：显示所有营期，可手动切换
+const isDietitian = computed(() => store.user?.role === 'dietitian');
+
+// 可选营期列表
+// 学员端：只显示自己 campIds 中的营期；营养师端：显示所有营期
+const availableCamps = computed(() => {
+  if (isDietitian.value) return store.camps;
+  if (store.user?.role === 'student') return store.getStudentCamps(store.user.id);
+  return store.camps;
 });
+
+// 营养师端用 store.selectedCampId（与 Dashboard 共享），学员端也用 store.selectedCampId
+// 当前生效的营期 ID
+const activeCampId = computed(() => {
+  // 优先使用 store 中选中的营期
+  if (store.selectedCampId && availableCamps.value.some((c) => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  // 自动选择第一个 active 营期
+  const active = availableCamps.value.find((c) => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
+
+// 当前营期名称
+const activeCampName = computed(() => {
+  const camp = availableCamps.value.find((c) => c.id === activeCampId.value);
+  return camp?.name || '全部';
+});
+
+// 是否显示营期切换器：仅营养师端显示（学员端由首页全局切换器控制）
+const showCampSwitcher = computed(() => isDietitian.value && availableCamps.value.length > 1);
+
+const showCampPicker = ref(false);
+
+const handleCampSelect = (campId: string) => {
+  store.selectedCampId = campId;
+  showCampPicker.value = false;
+};
+
+// 按营期过滤学员
+const campStudents = computed(() => {
+  if (!activeCampId.value) return [];
+  return store.getStudentsByCamp(activeCampId.value);
+});
+
+// 按营期过滤打卡记录
+const campDiet = computed(() => activeCampId.value ? store.getCampDietRecords(activeCampId.value) : store.dietRecords);
+const campEx = computed(() => activeCampId.value ? store.getCampExerciseRecords(activeCampId.value) : store.exerciseRecords);
+const campManual = computed(() => activeCampId.value ? store.getCampManualScoreRecords(activeCampId.value) : store.manualScoreRecords);
 
 const handleRefresh = () => {
   isRefreshing.value = true;
@@ -31,18 +76,134 @@ const handleRefresh = () => {
   }, 800);
 };
 
-const rankedStudents = computed(() =>
-  rankMode.value === 'week'
-    ? rankStudentsThisWeek(MOCK_STUDENTS, store.dietRecords, store.exerciseRecords)
-    : rankStudents(MOCK_STUDENTS, store.dietRecords, store.exerciseRecords)
-);
+const rankedStudents = computed(() => {
+  if (campStudents.value.length === 0) return [];
+  if (rankMode.value === 'progress') return progressRankedStudents.value;
+  return rankStudents(campStudents.value, campDiet.value, campEx.value, campManual.value);
+});
+
+// ---- 排名较昨日变动 ----
+const todayKey = format(new Date(), 'yyyy-MM-dd');
+const yesterdayKey = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
+const yesterdayRankKey = `rank_${activeCampId.value}_${yesterdayKey}`;
+const todayRankKey = `rank_${activeCampId.value}_${todayKey}`;
+
+const yesterdayRankMap = computed(() => {
+  try {
+    const raw = localStorage.getItem(yesterdayRankKey);
+    if (raw) return new Map<string, number>(JSON.parse(raw));
+  } catch { /* */ }
+  return new Map<string, number>();
+});
+
+// 今日首次打开时，保存当前排名为"今日排名"，同时把"昨日排名"缓存好
+function persistTodayRank() {
+  const ranked = rankStudents(campStudents.value, campDiet.value, campEx.value, campManual.value);
+  const entries = ranked.map((r) => [r.studentId, r.rank] as [string, number]);
+  // 如果今天还没存过，把昨天存的数据移到 yesterday（如果已有今日数据说明今天已存过）
+  const existingToday = localStorage.getItem(todayRankKey);
+  if (!existingToday) {
+    // 当前 localStorage 里可能存的是前一天的排名，把它移到 yesterday
+    const oldKey = `rank_${activeCampId.value}_${format(new Date(Date.now() - 86400000), 'yyyy-MM-dd')}`;
+    // yesterday 已经有自己的 key，不需要移动
+  }
+  localStorage.setItem(todayRankKey, JSON.stringify(entries));
+}
+
+const rankChange = (studentId: string, currentRank: number): number | null => {
+  const prev = yesterdayRankMap.value.get(studentId);
+  if (prev === undefined) return null;
+  return prev - currentRank; // 正数=上升，负数=下降
+};
+
+// ---- 进步榜：本周积分 - 上周积分 ----
+const progressRankedStudents = computed(() => {
+  if (campStudents.value.length === 0) return [];
+  const { mondayStr, sundayStr } = getCurrentWeekRange();
+  // 上周日期范围
+  const lastMonday = new Date(mondayStr);
+  lastMonday.setDate(lastMonday.getDate() - 7);
+  const lastSunday = new Date(sundayStr);
+  lastSunday.setDate(lastSunday.getDate() - 7);
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const lm = fmt(lastMonday), ls = fmt(lastSunday);
+
+  const results = campStudents.value.map((s) => {
+    const diet = campDiet.value.filter((r) => r.studentId === s.id);
+    const ex = campEx.value.filter((r) => r.studentId === s.id);
+    const manual = campManual.value.filter((r) => r.studentId === s.id);
+    // 本周
+    const weekDiet = diet.filter((r) => { const d = r.date.substring(0, 10); return d >= mondayStr && d <= sundayStr; });
+    const weekEx = ex.filter((r) => { const d = r.date.substring(0, 10); return d >= mondayStr && d <= sundayStr; });
+    const weekManual = manual.filter((r) => r.date >= mondayStr && r.date <= sundayStr);
+    const thisWeek = calculateTotalScore(weekDiet, weekEx, weekManual);
+    // 上周
+    const lastWeekDiet = diet.filter((r) => { const d = r.date.substring(0, 10); return d >= lm && d <= ls; });
+    const lastWeekEx = ex.filter((r) => { const d = r.date.substring(0, 10); return d >= lm && d <= ls; });
+    const lastWeekManual = manual.filter((r) => r.date >= lm && r.date <= ls);
+    const lastWeek = calculateTotalScore(lastWeekDiet, lastWeekEx, lastWeekManual);
+    return {
+      studentId: s.id,
+      name: s.name,
+      thisWeek,
+      lastWeek,
+      growth: thisWeek - lastWeek,
+      totalScore: thisWeek,
+      dietScore: calculateDietScore(weekDiet),
+      exerciseScore: calculateExerciseScore(weekEx),
+      manualScore: calculateManualScore(weekManual),
+    };
+  });
+  results.sort((a, b) => b.growth - a.growth);
+  // 分配排名
+  let rank = 1;
+  return results.map((r, i) => {
+    if (i > 0 && results[i].growth < results[i - 1].growth) rank = i + 1;
+    return { ...r, rank };
+  });
+});
+
+// ---- 加油互动 ----
+const cheerKey = (toId: string) => `cheer_${store.user?.id || 'anon'}_${toId}_${todayKey}`;
+const cheeredIds = ref<Set<string>>(new Set());
+
+const loadCheers = () => {
+  const cheered = new Set<string>();
+  for (const s of campStudents.value) {
+    if (localStorage.getItem(cheerKey(s.id))) cheered.add(s.id);
+  }
+  cheeredIds.value = cheered;
+};
+
+const cheerCount = (studentId: string): number => {
+  // 统计所有人对该学员的加油次数（从 localStorage 扫描）
+  let count = 0;
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith('cheer_') && key.includes(`_${studentId}_${todayKey}`)) count++;
+  }
+  return count;
+};
+
+const handleCheer = (studentId: string, name: string) => {
+  if (cheeredIds.value.has(studentId)) {
+    showToast({ message: '今天已经给TA加过油了', position: 'middle', duration: 1500 });
+    return;
+  }
+  localStorage.setItem(cheerKey(studentId), '1');
+  cheeredIds.value.add(studentId);
+  showToast({ message: `已给${name}加油！`, position: 'middle', duration: 1500 });
+};
+
+// 首次加载时保存今日排名
+loadCheers();
+persistTodayRank();
 
 const handleExportCSV = () => {
   const BOM = '﻿';
-  let csvContent = '排名,姓名,总积分,饮食积分,运动积分\n';
+  let csvContent = '排名,姓名,总积分,饮食积分,运动积分,手动调整\n';
 
   rankedStudents.value.forEach((row) => {
-    csvContent += `${row.rank},${row.name},${row.totalScore},${row.dietScore},${row.exerciseScore}\n`;
+    csvContent += `${row.rank},${row.name},${row.totalScore},${row.dietScore},${row.exerciseScore},${(row as any).manualScore ?? 0}\n`;
   });
 
   const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -61,6 +222,7 @@ const handleRowClick = (studentId: string) => {
     showToast({ message: '仅可查看自己的明细', position: 'middle', duration: 2000 });
     return;
   }
+  store.rankMode = rankMode.value;
   store.setSelectedStudentId(studentId);
   store.setCurrentView('pointsDetail');
 };
@@ -69,7 +231,7 @@ const handleScrollToMe = () => {
   if (!store.user) return;
   const el = document.getElementById(`rank-row-${store.user.id}`);
   if (el) {
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.scrollIntoView({ block: 'center' });
     highlightedId.value = store.user.id;
     setTimeout(() => {
       highlightedId.value = null;
@@ -112,6 +274,23 @@ const rankNumberCls = (rank: number) =>
     </NavBar>
 
     <div class="flex-1 p-4 space-y-3 pb-8">
+      <!-- 营期切换（仅营养师端显示，学员端由首页全局切换器控制） -->
+      <div v-if="showCampSwitcher" class="flex items-center gap-2">
+        <button
+          @click="showCampPicker = true"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg border border-gray-200 text-sm font-medium text-gray-700 active:bg-gray-50"
+        >
+          {{ activeCampName }}
+          <ChevronDown class="w-4 h-4 text-gray-400" />
+        </button>
+        <span class="text-xs text-gray-400">{{ campStudents.length }} 名学员</span>
+      </div>
+
+      <!-- 营期名称（学员端或单期时显示） -->
+      <div v-else class="text-xs text-gray-400 pl-1">
+        {{ activeCampName }} · {{ campStudents.length }} 名学员参与排名
+      </div>
+
       <div class="bg-gradient-to-r from-[#FF976A] to-[#ffb191] rounded-2xl p-6 text-white shadow-lg mb-6 relative overflow-hidden">
         <div class="relative z-10">
           <template v-if="store.user?.role === 'dietitian'">
@@ -119,17 +298,23 @@ const rankNumberCls = (rank: number) =>
           </template>
           <template v-else>
             <h2 class="text-lg font-bold mb-1 leading-snug">
-              当前我的排名位于 <span @click="handleScrollToMe" class="text-white border-b border-white/60 cursor-pointer pb-0.5">{{ currentUserRank?.rank || '--' }}</span> 位，<br />
-              总积分 <span @click="store.user && handleRowClick(store.user.id)" class="text-white border-b border-white/60 cursor-pointer pb-0.5">{{ currentUserRank?.totalScore || 0 }}</span> 分
+              <template v-if="rankMode === 'progress'">
+                本周进步 <span class="text-white border-b border-white/60 cursor-pointer pb-0.5" @click="store.user && handleRowClick(store.user.id)">{{ (currentUserRank?.growth ?? 0) >= 0 ? '+' : '' }}{{ currentUserRank?.growth ?? 0 }}</span> 分，
+                <br />排名位于 <span @click="handleScrollToMe" class="text-white border-b border-white/60 cursor-pointer pb-0.5">{{ currentUserRank?.rank || '--' }}</span> 位
+              </template>
+              <template v-else>
+                当前我的排名位于 <span @click="handleScrollToMe" class="text-white border-b border-white/60 cursor-pointer pb-0.5">{{ currentUserRank?.rank || '--' }}</span> 位，<br />
+                总积分 <span @click="store.user && handleRowClick(store.user.id)" class="text-white border-b border-white/60 cursor-pointer pb-0.5">{{ currentUserRank?.totalScore || 0 }}</span> 分
+              </template>
             </h2>
-            <p class="text-xs opacity-90 mt-2">坚持打卡，健康生活每一天！</p>
+            <p class="text-xs opacity-90 mt-2">{{ rankMode === 'progress' ? '每一步进步都值得被看见' : '坚持打卡，健康生活每一天！' }}</p>
           </template>
         </div>
         <Trophy class="absolute right-4 -bottom-4 w-24 h-24 text-white opacity-20" />
       </div>
 
       <div class="flex items-center justify-between -mt-3 mb-1">
-        <!-- 周榜/总榜切换 -->
+        <!-- 总榜/进步榜切换 -->
         <div class="flex bg-gray-100 rounded-full p-1">
           <button
             @click="rankMode = 'total'"
@@ -138,10 +323,10 @@ const rankNumberCls = (rank: number) =>
             总榜
           </button>
           <button
-            @click="rankMode = 'week'"
-            :class="['px-4 py-1.5 rounded-full text-xs font-bold transition-all', rankMode === 'week' ? 'bg-white text-[#FF976A] shadow-sm' : 'text-gray-500']"
+            @click="rankMode = 'progress'"
+            :class="['px-4 py-1.5 rounded-full text-xs font-bold transition-all', rankMode === 'progress' ? 'bg-white text-[#FF976A] shadow-sm' : 'text-gray-500']"
           >
-            本周榜
+            进步榜
           </button>
         </div>
         <button @click="showRules = true" class="flex items-center gap-1 text-xs text-gray-500 hover:text-[#FF976A] transition-colors">
@@ -150,14 +335,11 @@ const rankNumberCls = (rank: number) =>
         </button>
       </div>
 
-      <!-- 周榜日期范围提示 -->
-      <div v-if="rankMode === 'week'" class="flex items-center gap-1.5 text-xs text-[#FF976A] -mt-1 mb-2 pl-1">
-        <span class="inline-block w-1 h-1 rounded-full bg-[#FF976A]"></span>
-        <span>当前自然周：{{ weekRangeText }}（周一至周日）</span>
+      <!-- 进步榜提示 -->
+      <div v-if="rankMode === 'progress'" class="flex items-center gap-1.5 text-xs text-[#07C160] -mt-1 mb-2 pl-1">
+        <span class="inline-block w-1 h-1 rounded-full bg-[#07C160]"></span>
+        <span>按本周积分增长量排名，进步大者居前</span>
       </div>
-
-      <!-- 周榜下积分标签提示 -->
-      <div v-if="rankMode === 'week'" class="text-[10px] text-gray-400 text-right -mt-2 mb-1 pr-1">以下为本周积分</div>
 
       <Card
         v-for="student in rankedStudents"
@@ -181,16 +363,49 @@ const rankNumberCls = (rank: number) =>
           <div class="font-bold text-gray-900 flex items-center gap-2 truncate">
             <span class="truncate">{{ student.name }}</span>
             <span v-if="store.user?.id === student.studentId" class="text-[10px] bg-[#07C160] text-white px-1.5 py-0.5 rounded shrink-0">我</span>
+            <!-- 排名变动趋势（仅总榜显示） -->
+            <template v-if="rankMode === 'total'">
+              <span v-if="rankChange(student.studentId, student.rank) !== null && rankChange(student.studentId, student.rank)! > 0" class="flex items-center gap-0.5 text-[10px] text-[#07C160] font-bold shrink-0">
+                <TrendingUp class="w-3 h-3" />{{ rankChange(student.studentId, student.rank) }}
+              </span>
+              <span v-else-if="rankChange(student.studentId, student.rank) !== null && rankChange(student.studentId, student.rank)! < 0" class="flex items-center gap-0.5 text-[10px] text-orange-400 font-bold shrink-0">
+                <TrendingDown class="w-3 h-3" />{{ Math.abs(rankChange(student.studentId, student.rank)!) }}
+              </span>
+              <span v-else-if="rankChange(student.studentId, student.rank) === 0" class="flex items-center gap-0.5 text-[10px] text-gray-300 font-bold shrink-0">
+                <Minus class="w-3 h-3" />
+              </span>
+            </template>
+          </div>
+          <!-- 进步榜显示增长量 -->
+          <div v-if="rankMode === 'progress'" class="text-xs text-gray-500 mt-0.5">
+            本周 +{{ student.thisWeek }} 分 · 上周 +{{ student.lastWeek }} 分
+          </div>
+          <!-- 加油次数 -->
+          <div v-if="cheerCount(student.studentId) > 0" class="text-[10px] text-pink-400 flex items-center gap-0.5 mt-0.5">
+            <Heart class="w-2.5 h-2.5 fill-current" /> {{ cheerCount(student.studentId) }}
           </div>
         </div>
+
+        <!-- 加油按钮（非自己、学员端） -->
+        <button
+          v-if="store.user?.role === 'student' && store.user?.id !== student.studentId"
+          @click="handleCheer(student.studentId, student.name)"
+          :class="['p-2 rounded-full transition-all active:scale-90 shrink-0', cheeredIds.has(student.studentId) ? 'text-pink-400 bg-pink-50' : 'text-gray-300 hover:text-pink-400 hover:bg-pink-50']"
+        >
+          <Heart :class="['w-4 h-4', cheeredIds.has(student.studentId) ? 'fill-current' : '']" />
+        </button>
 
         <div
           :class="['flex items-center gap-1 pl-3 py-1 ml-2', store.user?.role === 'dietitian' || store.user?.id === student.studentId ? 'cursor-pointer hover:opacity-80 active:opacity-60 transition-opacity' : 'opacity-80']"
           @click="handleRowClick(student.studentId)"
         >
           <div class="text-right flex flex-col items-end justify-center">
-            <div class="text-[22px] font-black text-[#FF976A] leading-none tracking-tighter">{{ student.totalScore }}</div>
-            <div class="text-[10px] text-gray-400 mt-1">{{ rankMode === 'week' ? '本周积分' : '积分详情' }}</div>
+            <div class="text-[22px] font-black text-[#FF976A] leading-none tracking-tighter">
+              {{ rankMode === 'progress' ? `${student.growth >= 0 ? '+' : ''}${student.growth}` : student.totalScore }}
+            </div>
+            <div class="text-[10px] text-gray-400 mt-1">
+              {{ rankMode === 'progress' ? '本周增长' : '积分详情' }}
+            </div>
           </div>
           <ChevronRight :class="['w-4 h-4', store.user?.role === 'dietitian' || store.user?.id === student.studentId ? 'text-gray-300' : 'text-transparent']" />
         </div>
@@ -201,10 +416,47 @@ const rankNumberCls = (rank: number) =>
       <div class="p-5 max-h-[80vh] ">
         <h3 class="font-bold text-gray-900 text-base mb-3">打卡积分规则说明</h3>
         <div class="text-sm text-gray-700 space-y-3 leading-relaxed">
-          <p class="font-medium">本期健康训练营为期28天：</p>
+          <p class="font-medium">本期健康训练营为期{{ store.getCampDays(store.user?.id || '') || 28 }}天：</p>
           <p><span class="font-bold text-gray-900">饮食打卡：</span>饮食按一日三餐打卡，营养师对每餐进行评分（+2=较好落实计划 / +1=整体尚可但有改进空间 / 0=明显偏离计划），未批注不计分，单日饮食最高6分。</p>
           <p><span class="font-bold text-gray-900">运动打卡：</span>每日完成单次40分钟以上运动得1分基础分；营养师评分直接加分：+2（到位）再得2分，+1（尚可）再得1分。</p>
           <p>所有打卡积分累计后排名，积分越高名次越靠前，同分并列，对应名次均可兑换礼品，并列者享受同等激励。</p>
+        </div>
+      </div>
+    </VanPopup>
+
+    <!-- 营期选择弹窗（仅营养师端） -->
+    <VanPopup v-if="isDietitian" v-model:show="showCampPicker" position="bottom" round class="custom-popup">
+      <div class="p-4">
+        <h3 class="font-bold text-gray-900 text-base mb-3 text-center">选择营期</h3>
+        <div class="space-y-2">
+          <button
+            v-for="camp in availableCamps"
+            :key="camp.id"
+            @click="handleCampSelect(camp.id)"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              activeCampId === camp.id
+                ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">{{ camp.name }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-400">{{ store.getStudentsByCamp(camp.id).length }}人</span>
+              <span
+                v-if="camp.status === 'active'"
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600"
+              >进行中</span>
+              <span
+                v-else-if="camp.status === 'ended'"
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+              >已结束</span>
+              <span
+                v-else
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500"
+              >未开始</span>
+            </div>
+          </button>
         </div>
       </div>
     </VanPopup>

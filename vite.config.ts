@@ -1,8 +1,8 @@
 import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
+import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import {defineConfig} from 'vite';
-import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
@@ -12,45 +12,26 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon-192.png', 'icon-512.png'],
         manifest: {
-          name: '营养减重训练营',
-          short_name: '减重营',
-          description: '国网冀北综服中心营养减重训练营',
-          theme_color: '#FF976A',
+          name: '健康训练营',
+          short_name: '健康训练营',
+          description: '营养减重训练营学员端',
+          theme_color: '#0958d9',
           background_color: '#ffffff',
           display: 'standalone',
           scope: '/xuyuan/',
           start_url: '/xuyuan/',
           icons: [
-            {
-              src: '/xuyuan/icon-192.png',
-              sizes: '192x192',
-              type: 'image/png',
-            },
-            {
-              src: '/xuyuan/icon-512.png',
-              sizes: '512x512',
-              type: 'image/png',
-            },
-            {
-              src: '/xuyuan/icon-maskable-192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
-            {
-              src: '/xuyuan/icon-maskable-512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
+            { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+            { src: 'icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+            { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2,ttf}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          navigateFallback: '/xuyuan/index.html',
           cleanupOutdatedCaches: true,
-          clientsClaim: true,
         },
       }),
     ],

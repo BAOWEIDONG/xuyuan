@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useAppStore } from '../store/app';
-import { NavBar, Card } from './ui';
+import { Card } from './ui';
 import ActivityCard from './ActivityCard.vue';
-import { UserCircle, LogOut, Clock, Activity, FileText } from 'lucide-vue-next';
-import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem } from 'vant';
+import { UserCircle, LogOut, Clock, FileText } from 'lucide-vue-next';
 
 const store = useAppStore();
 const sortedActivities = computed(() =>
@@ -13,8 +12,8 @@ const sortedActivities = computed(() =>
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-20 font-sans">
-    <div class="pt-12 px-6 pb-4 bg-gradient-to-b from-[#07C160]/10 to-[#F7F8FA] border-b border-gray-100">
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-8 font-sans">
+    <div class="pt-[calc(env(safe-area-inset-top)+2.5rem)] px-6 pb-4 bg-gradient-to-b from-[#07C160]/10 to-[#F7F8FA] border-b border-gray-100">
       <div class="flex justify-end mb-2">
         <button @click="store.logout()" class="text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1 text-xs">
           <LogOut class="h-4 w-4" /> 退出
@@ -67,13 +66,5 @@ const sortedActivities = computed(() =>
         <ActivityCard v-for="activity in sortedActivities" :key="activity.id" :activity="activity" />
       </div>
     </div>
-
-    <!-- Bottom Nav (Vant Tabbar) -->
-    <VanTabbar class="custom-tabbar" :model-value="0">
-      <VanTabbarItem>
-        <template #icon><Activity class="h-6 w-6" /></template>
-        主页
-      </VanTabbarItem>
-    </VanTabbar>
   </div>
 </template>

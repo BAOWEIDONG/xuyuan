@@ -1,4 +1,4 @@
-import type { User, WeightRecord, ExerciseRecord, DietRecord, CoachActivityRecord, RewardTier, RewardClaim, MealTimeConfig, MetricConfig } from '../types';
+import type { WeightRecord, ExerciseRecord, DietRecord, CoachActivityRecord, RewardTier, RewardClaim, MealTimeConfig, MetricConfig, Camp, Account, PointProduct, PointExchangeRecord, ManualScoreRecord } from '../types';
 import type { MetricValue } from '../lib/medicalData';
 
 /** 生成奖品展示图 SVG data URI */
@@ -47,6 +47,7 @@ for (let i = -(COMPLETE_DAYS - 1); i <= 0; i++) {
     {
       id: `d_b_${idSuffix}`,
       studentId: 's1',
+      campId: 'camp1',
       date: iso(i, '08:00:00'),
       meal: 'breakfast',
       description: '燕麦粥一碗，白煮蛋两个，一杯牛奶',
@@ -62,6 +63,7 @@ for (let i = -(COMPLETE_DAYS - 1); i <= 0; i++) {
     {
       id: `d_l_${idSuffix}`,
       studentId: 's1',
+      campId: 'camp1',
       date: iso(i, '12:30:00'),
       meal: 'lunch',
       description: '香煎鸡胸肉沙拉，油醋汁',
@@ -77,6 +79,7 @@ for (let i = -(COMPLETE_DAYS - 1); i <= 0; i++) {
     {
       id: `d_d_${idSuffix}`,
       studentId: 's1',
+      campId: 'camp1',
       date: iso(i, '18:30:00'),
       meal: 'dinner',
       description: '紫薯、牛肉、西兰花',
@@ -93,12 +96,13 @@ for (let i = -(COMPLETE_DAYS - 1); i <= 0; i++) {
   MOCK_EXERCISE_RECORDS.push({
     id: `e_${idSuffix}`,
     studentId: 's1',
+    campId: 'camp1',
     date: iso(i, '19:00:00'),
-    type: i % 3 === 0 ? '游泳' : i % 3 === 1 ? '跑步' : '力量训练',
-    duration: 40 + (i % 3) * 10,
+    type: i % 2 === 0 ? '跑步' : '力量训练',
+    duration: 35 + (i % 3) * 5,
     intensity: 3 + (i % 2),
     photos: i % 2 === 0 ? ['https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&q=80'] : undefined,
-    dietitianComment: i < 0 ? (i % 3 === 0 ? '游泳是有氧好选择，注意拉伸！' : i % 3 === 1 ? '配速不错，继续保持。' : '动作标准，力量稳步提升。') : undefined,
+    dietitianComment: i < 0 ? (i % 2 === 0 ? '配速不错，继续保持。' : '动作标准，力量稳步提升。') : undefined,
     dietitianCommentDate: i < 0 ? iso(i, '21:00:00') : undefined,
     dietitianName: i < 0 ? '王营养师' : undefined,
     dietitianScore: i < 0 ? 2 : undefined,
@@ -113,6 +117,7 @@ export const MOCK_WEIGHT_RECORDS: WeightRecord[] = [
     date: iso(-15, '07:00:00'),
     weight: 66.8,
     studentId: 's1',
+    campId: 'camp1',
     photos: ['https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400&q=80'],
     dietitianComment: '入营初始体重，建议每日晨起空腹称重，保持同一时间点记录更准确。',
     dietitianName: '王营养师',
@@ -123,6 +128,7 @@ export const MOCK_WEIGHT_RECORDS: WeightRecord[] = [
     date: iso(-12, '07:10:00'),
     weight: 66.3,
     studentId: 's1',
+    campId: 'camp1',
     dietitianComment: '下降0.5kg，趋势良好，注意保证每日饮水量2000ml以上。',
     dietitianName: '王营养师',
     dietitianCommentDate: iso(-12, '14:20:00'),
@@ -134,17 +140,16 @@ for (let i = -(COMPLETE_DAYS - 1); i <= 0; i++) {
   const idSuffix = Math.abs(i).toString().padStart(2, '0');
   // 体重从 66.0 (day -10) 线性下降到 64.7 (day 0)，每日约 -0.13kg
   const weight = parseFloat((66.0 - (i + COMPLETE_DAYS - 1) * 0.13).toFixed(1));
-  const hasComment = i === -7 || i === -4 || i === -1;
   let comment: string | undefined;
   let commentDate: string | undefined;
   if (i === -7) {
-    comment = '累计减重1.3kg，趋势稳定，建议增加蛋白质摄入防止肌肉流失。';
+    comment = '累计下降1.3kg，趋势稳定，建议增加蛋白质摄入防止肌肉流失。';
     commentDate = iso(-7, '11:00:00');
   } else if (i === -4) {
     comment = '体重持续下降，继续保持饮食和运动的配合！';
     commentDate = iso(-4, '10:00:00');
   } else if (i === -1) {
-    comment = '今日体重创新低！累计减重2.1kg，脂肪燃烧效率很好，继续保持！';
+    comment = '今日体重创新低！累计下降2.1kg，脂肪燃烧效率很好，继续保持！';
     commentDate = iso(-1, '09:45:00');
   }
   MOCK_WEIGHT_RECORDS.push({
@@ -152,6 +157,7 @@ for (let i = -(COMPLETE_DAYS - 1); i <= 0; i++) {
     date: iso(i, '07:05:00'),
     weight,
     studentId: 's1',
+    campId: 'camp1',
     photos: i === -1 ? [
       'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400&q=80',
       'https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?w=400&q=80',
@@ -167,6 +173,7 @@ MOCK_DIET_RECORDS.push(
   {
     id: 'd6',
     studentId: 's2',
+    campId: 'camp1',
     date: iso(0, '07:30:00'),
     meal: 'breakfast',
     description: '全麦面包两片，无糖豆浆一杯，蓝莓一小把',
@@ -175,6 +182,7 @@ MOCK_DIET_RECORDS.push(
   {
     id: 'd7',
     studentId: 's2',
+    campId: 'camp1',
     date: iso(0, '12:40:00'),
     meal: 'lunch',
     description: '水煮虾10只，西兰花，藜麦饭半碗',
@@ -183,6 +191,7 @@ MOCK_DIET_RECORDS.push(
   {
     id: 'd8',
     studentId: 's3',
+    campId: 'camp1',
     date: iso(0, '08:15:00'),
     meal: 'breakfast',
     description: '未进食',
@@ -192,6 +201,7 @@ MOCK_DIET_RECORDS.push(
   {
     id: 'd9',
     studentId: 's3',
+    campId: 'camp1',
     date: iso(0, '12:00:00'),
     meal: 'lunch',
     description: '鸡胸肉沙拉',
@@ -202,6 +212,7 @@ MOCK_DIET_RECORDS.push(
   {
     id: 'd10',
     studentId: 's3',
+    campId: 'camp1',
     date: iso(0, '18:00:00'),
     meal: 'dinner',
     description: '紫薯、牛肉',
@@ -215,6 +226,7 @@ MOCK_EXERCISE_RECORDS.push(
   {
     id: 'e_s2_1',
     studentId: 's2',
+    campId: 'camp1',
     date: iso(0, '17:30:00'),
     type: '跑步',
     duration: 20,
@@ -224,6 +236,7 @@ MOCK_EXERCISE_RECORDS.push(
   {
     id: 'e_s3_1',
     studentId: 's3',
+    campId: 'camp1',
     date: iso(0, '20:00:00'),
     type: '瑜伽',
     duration: 40,
@@ -235,6 +248,7 @@ MOCK_EXERCISE_RECORDS.push(
   {
     id: 'e_s1_video',
     studentId: 's1',
+    campId: 'camp1',
     date: iso(0, '19:30:00'),
     type: '跑步',
     duration: 45,
@@ -254,37 +268,38 @@ const PAST_DAYS_S4 = 10; // s4 连续完成 10 天（含今日）
 for (let i = -(PAST_DAYS_S2 - 1); i < 0; i++) {
   const idSuffix = `s2_${Math.abs(i).toString().padStart(2, '0')}`;
   MOCK_DIET_RECORDS.push(
-    { id: `d_b_${idSuffix}`, studentId: 's2', date: iso(i, '07:30:00'), meal: 'breakfast', description: '全麦面包+牛奶', photos: [], dietitianScore: 2 },
-    { id: `d_l_${idSuffix}`, studentId: 's2', date: iso(i, '12:00:00'), meal: 'lunch', description: '鸡胸肉沙拉+糙米饭', photos: [], dietitianScore: 2 },
-    { id: `d_d_${idSuffix}`, studentId: 's2', date: iso(i, '18:00:00'), meal: 'dinner', description: '清蒸鱼+西兰花', photos: [], dietitianScore: 2 },
+    { id: `d_b_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '07:30:00'), meal: 'breakfast', description: '全麦面包+牛奶', photos: [], dietitianScore: 2 },
+    { id: `d_l_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '12:00:00'), meal: 'lunch', description: '鸡胸肉沙拉+糙米饭', photos: [], dietitianScore: 2 },
+    { id: `d_d_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '18:00:00'), meal: 'dinner', description: '清蒸鱼+西兰花', photos: [], dietitianScore: 2 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's2', date: iso(i, '17:30:00'), type: '跑步', duration: 45, intensity: 3, dietitianScore: i === -1 ? 1 : 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '17:30:00'), type: '跑步', duration: 45, intensity: 3, dietitianScore: i === -1 ? 1 : 2 });
 }
 
 for (let i = -(PAST_DAYS_S3 - 1); i < 0; i++) {
   const idSuffix = `s3_${Math.abs(i).toString().padStart(2, '0')}`;
   MOCK_DIET_RECORDS.push(
-    { id: `d_b_${idSuffix}`, studentId: 's3', date: iso(i, '08:00:00'), meal: 'breakfast', description: '燕麦粥+鸡蛋', photos: [], dietitianScore: i === -2 ? 1 : 2 },
-    { id: `d_l_${idSuffix}`, studentId: 's3', date: iso(i, '12:30:00'), meal: 'lunch', description: '牛肉+紫薯+蔬菜', photos: [], dietitianScore: i === -2 ? 1 : 2 },
-    { id: `d_d_${idSuffix}`, studentId: 's3', date: iso(i, '18:30:00'), meal: 'dinner', description: '鸡胸肉+蔬菜汤', photos: [], dietitianScore: i === -2 ? 1 : 2 },
+    { id: `d_b_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '08:00:00'), meal: 'breakfast', description: '燕麦粥+鸡蛋', photos: [], dietitianScore: i === -2 ? 1 : 2 },
+    { id: `d_l_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '12:30:00'), meal: 'lunch', description: '牛肉+紫薯+蔬菜', photos: [], dietitianScore: i === -2 ? 1 : 2 },
+    { id: `d_d_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '18:30:00'), meal: 'dinner', description: '鸡胸肉+蔬菜汤', photos: [], dietitianScore: i === -2 ? 1 : 2 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's3', date: iso(i, '19:00:00'), type: '力量训练', duration: 45, intensity: 4, dietitianScore: 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '19:00:00'), type: '力量训练', duration: 45, intensity: 4, dietitianScore: 2 });
 }
 
 for (let i = -(PAST_DAYS_S4 - 1); i < 0; i++) {
   const idSuffix = `s4_${Math.abs(i).toString().padStart(2, '0')}`;
   MOCK_DIET_RECORDS.push(
-    { id: `d_b_${idSuffix}`, studentId: 's4', date: iso(i, '07:20:00'), meal: 'breakfast', description: '杂粮粥+煮蛋', photos: [], dietitianScore: 2 },
-    { id: `d_l_${idSuffix}`, studentId: 's4', date: iso(i, '12:00:00'), meal: 'lunch', description: '虾仁+藜麦+蔬菜', photos: [], dietitianScore: 2 },
-    { id: `d_d_${idSuffix}`, studentId: 's4', date: iso(i, '18:00:00'), meal: 'dinner', description: '豆腐+蔬菜+少量主食', photos: [], dietitianScore: 2 },
+    { id: `d_b_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '07:20:00'), meal: 'breakfast', description: '杂粮粥+煮蛋', photos: [], dietitianScore: 2 },
+    { id: `d_l_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '12:00:00'), meal: 'lunch', description: '虾仁+藜麦+蔬菜', photos: [], dietitianScore: 2 },
+    { id: `d_d_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '18:00:00'), meal: 'dinner', description: '豆腐+蔬菜+少量主食', photos: [], dietitianScore: 2 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's4', date: iso(i, '18:30:00'), type: i % 2 === 0 ? '瑜伽' : '游泳', duration: i === -1 ? 35 : 40, intensity: 3, dietitianScore: i === -1 ? 1 : 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '18:30:00'), type: i % 2 === 0 ? '瑜伽' : '游泳', duration: i === -1 ? 35 : 40, intensity: 3, dietitianScore: i === -1 ? 1 : 2 });
 }
 
 // s2 今日晚餐（单独 push 的 d6/d7 只有早午餐，补晚餐使今日打卡完整）
 MOCK_DIET_RECORDS.push({
   id: 'd_s2_dinner_today',
   studentId: 's2',
+  campId: 'camp1',
   date: iso(0, '18:20:00'),
   meal: 'dinner',
   description: '清蒸鲈鱼+凉拌菠菜+小米粥',
@@ -297,19 +312,75 @@ MOCK_DIET_RECORDS.push({
 for (let i = -(PAST_DAYS_S2 - 1); i <= 0; i++) {
   const idSuffix = `s2_${Math.abs(i).toString().padStart(2, '0')}`;
   const w = parseFloat((58.0 - (i + PAST_DAYS_S2 - 1) * 0.25).toFixed(1));
-  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:10:00'), weight: w, studentId: 's2' });
+  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:10:00'), weight: w, studentId: 's2', campId: 'camp1' });
 }
 // s3: 75.0 -> 72.7 (5天，减重约3.1%，达3%里程碑)
 for (let i = -(PAST_DAYS_S3 - 1); i <= 0; i++) {
   const idSuffix = `s3_${Math.abs(i).toString().padStart(2, '0')}`;
   const w = parseFloat((75.0 - (i + PAST_DAYS_S3 - 1) * 0.57).toFixed(1));
-  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:15:00'), weight: w, studentId: 's3' });
+  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:15:00'), weight: w, studentId: 's3', campId: 'camp1' });
 }
 // s4: 55.0 -> 53.3 (10天，减重约3.1%，达3%里程碑)
 for (let i = -(PAST_DAYS_S4 - 1); i <= 0; i++) {
   const idSuffix = `s4_${Math.abs(i).toString().padStart(2, '0')}`;
   const w = parseFloat((55.0 - (i + PAST_DAYS_S4 - 1) * 0.19).toFixed(1));
-  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:00:00'), weight: w, studentId: 's4' });
+  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:00:00'), weight: w, studentId: 's4', campId: 'camp1' });
+}
+
+// s5 (camp1): 连续 7 天打卡，积分中等
+const PAST_DAYS_S5 = 7;
+for (let i = -(PAST_DAYS_S5 - 1); i <= 0; i++) {
+  const idSuffix = `s5_${Math.abs(i).toString().padStart(2, '0')}`;
+  MOCK_DIET_RECORDS.push(
+    { id: `d_b_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '07:45:00'), meal: 'breakfast', description: '玉米+鸡蛋+豆浆', photos: [], dietitianScore: i % 2 === 0 ? 2 : 1 },
+    { id: `d_l_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '12:15:00'), meal: 'lunch', description: '鸡腿肉+糙米饭+青菜', photos: [], dietitianScore: 2 },
+    { id: `d_d_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '18:30:00'), meal: 'dinner', description: '豆腐+蔬菜汤', photos: [], dietitianScore: 1 },
+  );
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '19:30:00'), type: '骑车', duration: 40, intensity: 3, dietitianScore: 1 });
+  const w = parseFloat((70.0 - (i + PAST_DAYS_S5 - 1) * 0.21).toFixed(1));
+  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:20:00'), weight: w, studentId: 's5', campId: 'camp1' });
+}
+
+// s6 (camp1+camp2): 连续 6 天打卡
+const PAST_DAYS_S6 = 6;
+for (let i = -(PAST_DAYS_S6 - 1); i <= 0; i++) {
+  const idSuffix = `s6_${Math.abs(i).toString().padStart(2, '0')}`;
+  MOCK_DIET_RECORDS.push(
+    { id: `d_b_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '08:00:00'), meal: 'breakfast', description: '全麦三明治+牛奶', photos: [], dietitianScore: 2 },
+    { id: `d_l_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '12:30:00'), meal: 'lunch', description: '牛肉面+蔬菜沙拉', photos: [], dietitianScore: 1 },
+    { id: `d_d_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '18:00:00'), meal: 'dinner', description: '鸡胸肉+西兰花', photos: [], dietitianScore: 2 },
+  );
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '20:00:00'), type: '跑步', duration: 45, intensity: 3, dietitianScore: 2 });
+  const w = parseFloat((65.0 - (i + PAST_DAYS_S6 - 1) * 0.16).toFixed(1));
+  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:30:00'), weight: w, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2' });
+}
+
+// s7 (camp2): 连续 3 天打卡（第二期新学员）
+const PAST_DAYS_S7 = 3;
+for (let i = -(PAST_DAYS_S7 - 1); i <= 0; i++) {
+  const idSuffix = `s7_${Math.abs(i).toString().padStart(2, '0')}`;
+  MOCK_DIET_RECORDS.push(
+    { id: `d_b_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '07:30:00'), meal: 'breakfast', description: '燕麦+牛奶+蓝莓', photos: [], dietitianScore: 2 },
+    { id: `d_l_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '12:00:00'), meal: 'lunch', description: '三文鱼+藜麦+蔬菜', photos: [], dietitianScore: 2 },
+    { id: `d_d_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '18:00:00'), meal: 'dinner', description: '蔬菜汤+鸡蛋', photos: [], dietitianScore: 1 },
+  );
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '18:30:00'), type: '瑜伽', duration: 50, intensity: 2, dietitianScore: 2 });
+  const w = parseFloat((52.0 - (i + PAST_DAYS_S7 - 1) * 0.1).toFixed(1));
+  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:15:00'), weight: w, studentId: 's7', campId: 'camp2' });
+}
+
+// s8 (camp2): 连续 2 天打卡
+const PAST_DAYS_S8 = 2;
+for (let i = -(PAST_DAYS_S8 - 1); i <= 0; i++) {
+  const idSuffix = `s8_${Math.abs(i).toString().padStart(2, '0')}`;
+  MOCK_DIET_RECORDS.push(
+    { id: `d_b_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '08:00:00'), meal: 'breakfast', description: '包子+豆浆', photos: [], dietitianScore: 1 },
+    { id: `d_l_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '12:30:00'), meal: 'lunch', description: '鸡胸肉+米饭+蔬菜', photos: [], dietitianScore: 2 },
+    { id: `d_d_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '19:00:00'), meal: 'dinner', description: '蔬菜沙拉+鸡蛋', photos: [], dietitianScore: 1 },
+  );
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '20:00:00'), type: '游泳', duration: 45, intensity: 3, dietitianScore: 2 });
+  const w = parseFloat((78.0 - (i + PAST_DAYS_S8 - 1) * 0.15).toFixed(1));
+  MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:40:00'), weight: w, studentId: 's8', campId: 'camp2' });
 }
 
 export const MOCK_COACH_ACTIVITIES: CoachActivityRecord[] = [
@@ -355,59 +426,72 @@ export const MOCK_COACH_ACTIVITIES: CoachActivityRecord[] = [
 export const MOCK_REWARD_TIERS: RewardTier[] = [
   {
     id: 't0',
+    campId: 'camp1',
     name: '运动跳绳',
     requiredDays: 5,
     imageUrl: rewardImg('运动跳绳', '🏃', '#4A90D9', '#357ABD'),
     stock: 100,
     source: 'streak',
+    deliveryMethods: ['shipped', 'in-person'],
   },
   {
     id: 't1',
+    campId: 'camp1',
     name: '运动水杯',
     requiredDays: 10,
     imageUrl: rewardImg('运动水杯', '🥤', '#07C160', '#06A952'),
     stock: 50,
     source: 'streak',
+    deliveryMethods: ['shipped', 'in-person'],
   },
   {
     id: 't2',
+    campId: 'camp1',
     name: '瑜伽垫',
     requiredDays: 21,
     imageUrl: rewardImg('瑜伽垫', '🧘', '#8B5CF6', '#7C3AED'),
     stock: 20,
     source: 'streak',
+    deliveryMethods: ['shipped', 'in-person'],
   },
   {
     id: 't3',
+    campId: 'camp1',
     name: '智能体脂秤',
     requiredDays: 28,
     imageUrl: rewardImg('智能体脂秤', '⚖️', '#374151', '#1F2937'),
     stock: 5,
     source: 'streak',
+    deliveryMethods: ['shipped'],
   },
   // 趣味活动奖品
   {
     id: 't4',
-    name: '减重里程碑奖·一档',
+    campId: 'camp1',
+    name: '里程碑奖·一档',
     requiredDays: 0,
     imageUrl: rewardImg('里程碑奖', '🏅', '#F59E0B', '#D97706'),
     stock: 30,
     source: 'activity',
     activityType: 'milestone',
-    description: '减重达 3% 发放',
+    description: '达标 3% 发放',
+    deliveryMethods: ['shipped', 'in-person'],
   },
   {
     id: 't5',
-    name: '减重里程碑奖·二档',
+    campId: 'camp1',
+    name: '里程碑奖·二档',
     requiredDays: 0,
     imageUrl: rewardImg('里程碑奖', '🏆', '#F59E0B', '#D97706'),
     stock: 15,
     source: 'activity',
     activityType: 'milestone',
-    description: '减重达 5% 发放',
+    description: '达标 5% 发放',
+    deliveryMethods: ['shipped', 'in-person'],
   },
   {
     id: 't6',
+    campId: 'camp1',
     name: '每周挑战奖品',
     requiredDays: 0,
     imageUrl: rewardImg('挑战奖', '🎁', '#07C160', '#06A952'),
@@ -415,9 +499,11 @@ export const MOCK_REWARD_TIERS: RewardTier[] = [
     source: 'activity',
     activityType: 'weekly',
     description: '完成每周主题挑战发放',
+    deliveryMethods: ['shipped', 'in-person'],
   },
   {
     id: 't7',
+    campId: 'camp1',
     name: '全勤抽奖奖品',
     requiredDays: 0,
     imageUrl: rewardImg('抽奖奖', '🎉', '#8B5CF6', '#7C3AED'),
@@ -425,12 +511,14 @@ export const MOCK_REWARD_TIERS: RewardTier[] = [
     source: 'activity',
     activityType: 'lucky',
     description: '全勤幸运抽奖发放',
+    deliveryMethods: ['in-person'],
   },
 ];
 
 export const MOCK_REWARD_CLAIMS: RewardClaim[] = [
   {
     id: 'c1',
+    campId: 'camp1',
     tierId: 't0',
     studentId: 's1',
     studentName: '李明',
@@ -441,9 +529,11 @@ export const MOCK_REWARD_CLAIMS: RewardClaim[] = [
     status: 'shipped',
     trackingNumber: 'SF1029384756',
     shipDate: iso(-5, '09:00:00'),
+    deliveryMethod: 'shipped',
   },
   {
     id: 'c2',
+    campId: 'camp1',
     tierId: 't0',
     studentId: 's2',
     studentName: '王丽',
@@ -452,10 +542,12 @@ export const MOCK_REWARD_CLAIMS: RewardClaim[] = [
     recipientAddress: '上海市浦东新区某某路2号',
     claimDate: iso(0, '11:00:00'),
     status: 'pending',
+    deliveryMethod: 'shipped',
   },
   // 活动奖励 - 阶梯减重达标（营养师已审核通过，等待学员领取）
   {
     id: 'c3',
+    campId: 'camp1',
     tierId: 't4',
     studentId: 's1',
     studentName: '李明',
@@ -469,6 +561,7 @@ export const MOCK_REWARD_CLAIMS: RewardClaim[] = [
   // 活动奖励 - 阶梯减重达标（学员已领取，等待营养师发货）
   {
     id: 'c4',
+    campId: 'camp1',
     tierId: 't4',
     studentId: 's2',
     studentName: '王丽',
@@ -483,6 +576,7 @@ export const MOCK_REWARD_CLAIMS: RewardClaim[] = [
   // 活动奖励 - 阶梯减重达标（已线下发放）
   {
     id: 'c5',
+    campId: 'camp1',
     tierId: 't4',
     studentId: 's3',
     studentName: '张伟',
@@ -521,26 +615,26 @@ export const DEFAULT_METRIC_CONFIGS: MetricConfig[] = [
   { id: 'mc_body_asmi', name: '四肢骨骼肌质量指数', unit: 'kg/㎡', normalRange: '6.0 - 9.0', category: '身体测量数据' },
   { id: 'mc_body_ainst', name: 'AINST评分', unit: '分', normalRange: '70 - 100', category: '身体测量数据' },
   // 肝功能相关
-  { id: 'mc_liver_alt', name: '丙氨酸氨基转移酶', unit: 'U/L', normalRange: '男9-50 / 女7-40', category: '肝功能相关' },
-  { id: 'mc_liver_ast', name: '天门冬氨酸氨基转移酶', unit: 'U/L', normalRange: '男15-40 / 女13-35', category: '肝功能相关' },
+  { id: 'mc_liver_alt', name: '丙氨酸氨基转移酶', unit: 'U/L', normalRange: '9-50', category: '肝功能相关' },
+  { id: 'mc_liver_ast', name: '天门冬氨酸氨基转移酶', unit: 'U/L', normalRange: '15-40', category: '肝功能相关' },
   { id: 'mc_liver_tp', name: '总蛋白', unit: 'g/L', normalRange: '65-85', category: '肝功能相关' },
   { id: 'mc_liver_alb', name: '白蛋白', unit: 'g/L', normalRange: '40-55', category: '肝功能相关' },
-  { id: 'mc_liver_palb', name: '前白蛋白', unit: 'mg/L', normalRange: '200-400', category: '肝功能相关' },
-  { id: 'mc_liver_tbil', name: '总胆红素', unit: 'μmol/L', normalRange: '男3.4-20.5 / 女3.4-17.1', category: '肝功能相关' },
-  { id: 'mc_liver_dbil', name: '直接胆红素', unit: 'μmol/L', normalRange: '0-6.8', category: '肝功能相关' },
+  { id: 'mc_liver_palb', name: '前白蛋白', unit: 'mg/L', normalRange: '200-430', category: '肝功能相关' },
+  { id: 'mc_liver_tbil', name: '总胆红素', unit: 'μmol/L', normalRange: '0-23', category: '肝功能相关' },
+  { id: 'mc_liver_dbil', name: '直接胆红素', unit: 'μmol/L', normalRange: '0-6.84', category: '肝功能相关' },
   { id: 'mc_liver_alp', name: '碱性磷酸酶', unit: 'U/L', normalRange: '45-125', category: '肝功能相关' },
   { id: 'mc_liver_ggt', name: 'γ-谷氨酰基转移酶', unit: 'U/L', normalRange: '男10-60 / 女7-45', category: '肝功能相关' },
   // 肾功能相关
-  { id: 'mc_kidney_urea', name: '尿素', unit: 'mmol/L', normalRange: '男2.9-8.2 / 女2.6-7.5', category: '肾功能相关' },
-  { id: 'mc_kidney_cr', name: '肌酐', unit: 'μmol/L', normalRange: '男62-115 / 女53-97', category: '肾功能相关' },
-  { id: 'mc_kidney_ua', name: '尿酸', unit: 'μmol/L', normalRange: '男<420 / 女<360', category: '肾功能相关' },
+  { id: 'mc_kidney_urea', name: '尿素氮', unit: 'mmol/L', normalRange: '3.1-8', category: '肾功能相关' },
+  { id: 'mc_kidney_cr', name: '肌酐', unit: 'μmol/L', normalRange: '57-97', category: '肾功能相关' },
+  { id: 'mc_kidney_ua', name: '尿酸', unit: 'μmol/L', normalRange: '208-428', category: '肾功能相关' },
   // 血脂相关
-  { id: 'mc_bl_tc', name: '总胆固醇', unit: 'mmol/L', normalRange: '<5.2', category: '血脂相关' },
+  { id: 'mc_bl_tc', name: '总胆固醇', unit: 'mmol/L', normalRange: '<5.18', category: '血脂相关' },
   { id: 'mc_bl_tg', name: '甘油三酯', unit: 'mmol/L', normalRange: '<1.7', category: '血脂相关' },
-  { id: 'mc_bl_hdl', name: '高密度脂蛋白胆固醇', unit: 'mmol/L', normalRange: '>1.04', category: '血脂相关' },
-  { id: 'mc_bl_ldl', name: '低密度脂蛋白胆固醇', unit: 'mmol/L', normalRange: '<3.4', category: '血脂相关' },
+  { id: 'mc_bl_hdl', name: '高密度脂蛋白胆固醇', unit: 'mmol/L', normalRange: '1.04-1.55', category: '血脂相关' },
+  { id: 'mc_bl_ldl', name: '低密度脂蛋白胆固醇', unit: 'mmol/L', normalRange: '<3.33', category: '血脂相关' },
   // 血糖相关
-  { id: 'mc_bs_fasting', name: '葡萄糖(空腹)', unit: 'mmol/L', normalRange: '3.9-6.1', category: '血糖相关' },
+  { id: 'mc_bs_fasting', name: '葡萄糖(空腹)', unit: 'mmol/L', normalRange: '3.89-6.11', category: '血糖相关' },
   { id: 'mc_bs_hba1c', name: '糖化血红蛋白', unit: '%', normalRange: '4.0-6.0', category: '血糖相关' },
 ];
 
@@ -684,27 +778,65 @@ export const MOCK_STUDENT_METRIC_VALUES: Record<string, Record<string, MetricVal
     'mc_bs_fasting': { beforeValue: 5.0, afterValue: 4.7 },
     'mc_bs_hba1c': { beforeValue: 5.4, afterValue: 5.2 },
   },
+  // s5: 部分指标改善、部分不变或恶化（使企业汇报版改善率不再全是 100%）
+  's5': {
+    'mc_body_weight': { beforeValue: 70.0, afterValue: 68.5 },
+    'mc_body_muscle': { beforeValue: 42.0, afterValue: 41.5 },   // 肌肉略减（未改善）
+    'mc_body_skeletal': { beforeValue: 26.0, afterValue: 26.2 },
+    'mc_body_fat': { beforeValue: 24.0, afterValue: 22.0 },
+    'mc_body_bmr': { beforeValue: 1380, afterValue: 1370 },      // 代谢略降（未改善）
+    'mc_body_whr': { beforeValue: 0.88, afterValue: 0.85 },
+    'mc_body_visceral': { beforeValue: 95, afterValue: 88 },
+    'mc_body_obesity': { beforeValue: 108, afterValue: 104 },
+    'mc_liver_alt': { beforeValue: 32, afterValue: 28 },
+    'mc_liver_ast': { beforeValue: 25, afterValue: 23 },
+    'mc_liver_ggt': { beforeValue: 38, afterValue: 42 },          // GGT 升高（未改善）
+    'mc_kidney_ua': { beforeValue: 360, afterValue: 380 },        // 尿酸升高（未改善）
+    'mc_bl_tc': { beforeValue: 4.8, afterValue: 4.6 },
+    'mc_bl_tg': { beforeValue: 1.4, afterValue: 1.2 },
+    'mc_bl_hdl': { beforeValue: 1.1, afterValue: 1.2 },
+    'mc_bl_ldl': { beforeValue: 2.8, afterValue: 2.6 },
+    'mc_bs_fasting': { beforeValue: 5.4, afterValue: 5.3 },
+    'mc_bs_hba1c': { beforeValue: 5.6, afterValue: 5.5 },
+  },
+  // s6: 改善较少的学员（多项指标几乎不变）
+  's6': {
+    'mc_body_weight': { beforeValue: 65.0, afterValue: 64.5 },
+    'mc_body_muscle': { beforeValue: 40.0, afterValue: 40.0 },    // 不变
+    'mc_body_fat': { beforeValue: 20.0, afterValue: 19.5 },
+    'mc_body_bmr': { beforeValue: 1350, afterValue: 1350 },       // 不变
+    'mc_body_visceral': { beforeValue: 80, afterValue: 78 },
+    'mc_liver_alt': { beforeValue: 22, afterValue: 24 },          // 略升（未改善）
+    'mc_liver_ggt': { beforeValue: 28, afterValue: 30 },          // 略升（未改善）
+    'mc_kidney_ua': { beforeValue: 310, afterValue: 305 },
+    'mc_bl_tc': { beforeValue: 4.5, afterValue: 4.4 },
+    'mc_bl_tg': { beforeValue: 1.2, afterValue: 1.3 },            // 略升（未改善）
+    'mc_bl_hdl': { beforeValue: 1.2, afterValue: 1.2 },           // 不变
+    'mc_bl_ldl': { beforeValue: 2.6, afterValue: 2.5 },
+    'mc_bs_fasting': { beforeValue: 5.1, afterValue: 5.0 },
+    'mc_bs_hba1c': { beforeValue: 5.3, afterValue: 5.3 },         // 不变
+  },
 };
 
 // Per-student weight records (for camp report weight trend)
 export const MOCK_STUDENT_WEIGHTS: Record<string, WeightRecord[]> = {
   's2': [
-    { id: 'w_s2_1', date: iso(-15, '07:00:00'), weight: 62.0, studentId: 's2' },
-    { id: 'w_s2_2', date: iso(-10, '07:10:00'), weight: 61.0, studentId: 's2' },
-    { id: 'w_s2_3', date: iso(-5, '07:00:00'), weight: 59.8, studentId: 's2' },
-    { id: 'w_s2_4', date: iso(-1, '07:05:00'), weight: 58.5, studentId: 's2' },
+    { id: 'w_s2_1', date: iso(-15, '07:00:00'), weight: 62.0, studentId: 's2', campId: 'camp1' },
+    { id: 'w_s2_2', date: iso(-10, '07:10:00'), weight: 61.0, studentId: 's2', campId: 'camp1' },
+    { id: 'w_s2_3', date: iso(-5, '07:00:00'), weight: 59.8, studentId: 's2', campId: 'camp1' },
+    { id: 'w_s2_4', date: iso(-1, '07:05:00'), weight: 58.5, studentId: 's2', campId: 'camp1' },
   ],
   's3': [
-    { id: 'w_s3_1', date: iso(-15, '07:00:00'), weight: 95.0, studentId: 's3' },
-    { id: 'w_s3_2', date: iso(-10, '07:10:00'), weight: 92.5, studentId: 's3' },
-    { id: 'w_s3_3', date: iso(-5, '07:00:00'), weight: 89.8, studentId: 's3' },
-    { id: 'w_s3_4', date: iso(-1, '07:05:00'), weight: 88.0, studentId: 's3' },
+    { id: 'w_s3_1', date: iso(-15, '07:00:00'), weight: 95.0, studentId: 's3', campId: 'camp1' },
+    { id: 'w_s3_2', date: iso(-10, '07:10:00'), weight: 92.5, studentId: 's3', campId: 'camp1' },
+    { id: 'w_s3_3', date: iso(-5, '07:00:00'), weight: 89.8, studentId: 's3', campId: 'camp1' },
+    { id: 'w_s3_4', date: iso(-1, '07:05:00'), weight: 88.0, studentId: 's3', campId: 'camp1' },
   ],
   's4': [
-    { id: 'w_s4_1', date: iso(-15, '07:00:00'), weight: 58.0, studentId: 's4' },
-    { id: 'w_s4_2', date: iso(-10, '07:10:00'), weight: 57.0, studentId: 's4' },
-    { id: 'w_s4_3', date: iso(-5, '07:00:00'), weight: 56.0, studentId: 's4' },
-    { id: 'w_s4_4', date: iso(-1, '07:05:00'), weight: 55.5, studentId: 's4' },
+    { id: 'w_s4_1', date: iso(-15, '07:00:00'), weight: 58.0, studentId: 's4', campId: 'camp1' },
+    { id: 'w_s4_2', date: iso(-10, '07:10:00'), weight: 57.0, studentId: 's4', campId: 'camp1' },
+    { id: 'w_s4_3', date: iso(-5, '07:00:00'), weight: 56.0, studentId: 's4', campId: 'camp1' },
+    { id: 'w_s4_4', date: iso(-1, '07:05:00'), weight: 55.5, studentId: 's4', campId: 'camp1' },
   ],
 };
 
@@ -717,3 +849,61 @@ Object.values(MOCK_STUDENT_WEIGHTS).forEach((records) => {
     }
   });
 });
+
+// ============================================================================
+//  账户管理 Mock 数据
+// ============================================================================
+
+/** 营期/期列表 */
+export const MOCK_CAMPS: Camp[] = [
+  { id: 'camp1', name: '第一期', startDate: dateStr(-15), endDate: dateStr(13), status: 'active' },
+  { id: 'camp2', name: '第二期', startDate: dateStr(-2), endDate: dateStr(26), status: 'active' },
+  { id: 'camp3', name: '第三期', startDate: dateStr(7), endDate: dateStr(35), status: 'upcoming' },
+];
+
+/** 账户列表（手机号 = 登录凭证） */
+export const MOCK_ACCOUNTS: Account[] = [
+  // 营养师（第一批数据库预维护，后续可在营养师端管理）
+  { id: 'd0', phone: '18888888888', name: '管理员', role: 'dietitian', active: true, createdAt: iso(-30, '09:00:00') },
+  { id: 'd1', phone: '13900000001', name: '王营养师', role: 'dietitian', active: true, createdAt: iso(-30, '09:00:00') },
+  { id: 'd2', phone: '13900000002', name: '李营养师', role: 'dietitian', active: true, createdAt: iso(-20, '09:00:00') },
+  // 教练
+  { id: 'c1', phone: '13700000001', name: '李教练', role: 'coach', active: true, createdAt: iso(-28, '10:00:00') },
+  { id: 'c2', phone: '13700000002', name: '王教练', role: 'coach', active: true, createdAt: iso(-28, '10:00:00') },
+  { id: 'c3', phone: '13700000003', name: '张教练', role: 'coach', active: true, createdAt: iso(-28, '10:00:00') },
+  // 学员（id 与 MOCK_STUDENTS 一致，确保登录后能关联到打卡/体重/检测数据）
+  { id: 's1', phone: '13800000001', name: '李明', role: 'student', campIds: ['camp1'], active: true, createdAt: iso(-15, '08:00:00') },
+  { id: 's2', phone: '13800000002', name: '王丽', role: 'student', campIds: ['camp1'], active: true, createdAt: iso(-15, '08:00:00') },
+  { id: 's3', phone: '13800000003', name: '张伟', role: 'student', campIds: ['camp1'], active: true, createdAt: iso(-15, '08:00:00') },
+  { id: 's4', phone: '13800000004', name: '赵静', role: 'student', campIds: ['camp1'], active: true, createdAt: iso(-15, '08:00:00') },
+  { id: 's5', phone: '13800000005', name: '周杰', role: 'student', campIds: ['camp1'], active: true, createdAt: iso(-15, '08:00:00') },
+  { id: 's6', phone: '13800000006', name: '吴磊', role: 'student', campIds: ['camp1', 'camp2'], active: true, createdAt: iso(-15, '08:00:00') },
+  { id: 's7', phone: '13800000007', name: '郑爽', role: 'student', campIds: ['camp2'], active: true, createdAt: iso(-2, '08:00:00') },
+  { id: 's8', phone: '13800000008', name: '王强', role: 'student', campIds: ['camp2'], active: true, createdAt: iso(-2, '08:00:00') },
+  { id: 's9', phone: '13800000009', name: '刘梅', role: 'student', campIds: ['camp2'], active: false, createdAt: iso(-2, '08:00:00') },
+  { id: 's10', phone: '13800000010', name: '孙悟空', role: 'student', campIds: ['camp1', 'camp2'], active: true, createdAt: iso(-15, '08:00:00') },
+];
+
+/** 积分商城商品 */
+export const MOCK_POINT_PRODUCTS: PointProduct[] = [
+  { id: 'pp1', name: '运动水杯', imageUrl: rewardImg('运动水杯', '🥤', '#1677FF', '#0099CC'), description: '便携运动水杯 500ml，BPA-free 材质，健康饮水好搭档', pointsRequired: 30, stock: 50, active: true, deliveryOptions: ['shipped', 'in-person'] },
+  { id: 'pp2', name: '跳绳', imageUrl: rewardImg('跳绳', '🤸', '#FF976A', '#FF6B35'), description: '专业计数跳绳，防滑手柄，轴承顺滑，燃脂利器', pointsRequired: 50, stock: 30, active: true, deliveryOptions: ['shipped', 'in-person'] },
+  { id: 'pp3', name: '瑜伽垫', imageUrl: rewardImg('瑜伽垫', '🧘', '#07C160', '#04A551'), description: '加厚防滑瑜伽垫 6mm，TPE 环保材质，运动更舒适', pointsRequired: 80, stock: 20, active: true, deliveryOptions: ['shipped'] },
+  { id: 'pp4', name: '电子体脂秤', imageUrl: rewardImg('体脂秤', '⚖️', '#8B5CF6', '#6D28D9'), description: '智能体脂秤，13项身体数据监测，蓝牙连接APP', pointsRequired: 120, stock: 10, active: true, deliveryOptions: ['shipped'] },
+  { id: 'pp5', name: '蛋白粉', imageUrl: rewardImg('蛋白粉', '💪', '#F59E0B', '#D97706'), description: '乳清蛋白粉 500g，运动后补充蛋白质，助力恢复', pointsRequired: 100, stock: 15, active: true, deliveryOptions: ['shipped', 'in-person'] },
+  { id: 'pp6', name: '筋膜枪', imageUrl: rewardImg('筋膜枪', '🔫', '#EC4899', '#DB2777'), description: '迷你筋膜枪，4档力度调节，运动后放松肌肉', pointsRequired: 200, stock: 5, active: true, deliveryOptions: ['shipped'] },
+];
+
+/** 积分兑换记录 */
+export const MOCK_POINT_EXCHANGES: PointExchangeRecord[] = [
+  { id: 'pe1', studentId: 's1', studentName: '李明', productId: 'pp1', productName: '运动水杯', productImage: rewardImg('运动水杯', '🥤', '#1677FF', '#0099CC'), pointsSpent: 30, exchangeDate: iso(-3, '14:30:00'), status: 'fulfilled', deliveryMethod: 'shipped', trackingNumber: 'SF1024567890', shipDate: iso(-2, '10:00:00'), recipientName: '李明', recipientPhone: '13800001111', recipientAddress: '北京市海淀区中关村大街1号' },
+  { id: 'pe2', studentId: 's2', studentName: '王芳', productId: 'pp2', productName: '跳绳', productImage: rewardImg('蛋白粉', '💪', '#07C160', '#04A551'), pointsSpent: 50, exchangeDate: iso(-1, '09:15:00'), status: 'pending', deliveryMethod: 'shipped', recipientName: '王芳', recipientPhone: '13800002222', recipientAddress: '上海市浦东新区张江路100号' },
+  { id: 'pe3', studentId: 's3', studentName: '张伟', productId: 'pp3', productName: '瑜伽垫', productImage: rewardImg('体脂秤', '⚖️', '#FF976A', '#FF6B35'), pointsSpent: 80, exchangeDate: iso(-5, '16:20:00'), status: 'fulfilled', deliveryMethod: 'in-person', deliveredAt: iso(-4, '14:00:00') },
+];
+
+/** 营养师手动加减分记录（补录线下打卡积分等） */
+export const MOCK_MANUAL_SCORES: ManualScoreRecord[] = [
+  { id: 'ms1', studentId: 's1', points: 10, reason: '营前线下打卡补录（5天饮食+运动）', dietitianName: '营养师小王', createdAt: iso(-2, '10:00:00'), date: dateStr(-7), campId: 'c1' },
+  { id: 'ms2', studentId: 's2', points: 6, reason: '线下运动打卡补录', dietitianName: '营养师小王', createdAt: iso(-2, '10:05:00'), date: dateStr(-5), campId: 'c1' },
+  { id: 'ms3', studentId: 's3', points: -2, reason: '打卡作弊扣分', dietitianName: '营养师小王', createdAt: iso(-1, '15:00:00'), date: dateStr(-1), campId: 'c1' },
+];

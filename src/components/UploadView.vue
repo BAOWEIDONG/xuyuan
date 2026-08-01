@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { format } from 'date-fns';
 import { useAppStore } from '../store/app';
 import { Button, Input, NavBar, Card } from './ui';
@@ -9,6 +9,16 @@ const store = useAppStore();
 const weight = ref('');
 const images = ref<string[]>([]);
 const error = ref('');
+
+// 营期上下文
+const availableCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+const activeCampId = computed(() => {
+  if (store.selectedCampId && availableCamps.value.some(c => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  const active = availableCamps.value.find(c => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
 
 const photoInputRef = ref<HTMLInputElement | null>(null);
 
@@ -34,7 +44,9 @@ const handleSubmit = () => {
 
   store.addWeightRecord({
     id: `w_${Date.now()}`,
-    date: format(new Date(), 'yyyy-MM-dd HH:mm'),
+    studentId: store.user?.id || 's1',
+    campId: activeCampId.value || undefined,
+    date: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
     weight: w,
   });
 
@@ -80,6 +92,7 @@ const handleSubmit = () => {
         <div class="flex items-center space-x-3">
           <Input
             type="number"
+            inputmode="decimal"
             placeholder="0.0"
             :value="weight"
             @input="weight = ($event.target as HTMLInputElement).value"

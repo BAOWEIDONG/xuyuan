@@ -22,7 +22,7 @@
  *    按 totalScore 降序，同分同名次（dense ranking，非跳跃式）
  * ============================================================================
  */
-import type { DietRecord, ExerciseRecord } from '../types';
+import type { DietRecord, ExerciseRecord, ManualScoreRecord } from '../types';
 
 /**
  * 计算饮食积分
@@ -60,6 +60,8 @@ export function calculateDietScore(records: DietRecord[]): number {
  *   1. 每条记录 duration >= 40 分钟 -> 基础 1 分
  *   2. 营养师评分直接加分: dietitianScore=2 再 +2 分，dietitianScore=1 再 +1 分
  *
+ * 每天最多 5 次运动打卡，每次有效运动（≥40min）均可计分。
+ *
  * @param records 当前学员的运动记录
  * @returns 运动总分
  */
@@ -80,10 +82,25 @@ export function calculateExerciseScore(records: ExerciseRecord[]): number {
 }
 
 /**
- * 计算总积分 = 饮食积分 + 运动积分
+ * 计算手动加减分总和
+ *
+ * @param records 手动加减分记录（已按学员过滤）
+ * @returns 手动积分（正数=加分，负数=减分）
  */
-export function calculateTotalScore(dietRecords: DietRecord[], exerciseRecords: ExerciseRecord[]): number {
-  return calculateDietScore(dietRecords) + calculateExerciseScore(exerciseRecords);
+export function calculateManualScore(records: ManualScoreRecord[]): number {
+  return records.reduce((sum, r) => sum + r.points, 0);
+}
+
+/**
+ * 计算总积分 = 饮食积分 + 运动积分 + 手动积分
+ */
+export function calculateTotalScore(
+  dietRecords: DietRecord[],
+  exerciseRecords: ExerciseRecord[],
+  manualScoreRecords?: ManualScoreRecord[]
+): number {
+  const manual = manualScoreRecords ? calculateManualScore(manualScoreRecords) : 0;
+  return calculateDietScore(dietRecords) + calculateExerciseScore(exerciseRecords) + manual;
 }
 
 export interface StudentScoreData {
@@ -91,11 +108,18 @@ export interface StudentScoreData {
   name: string;
   dietScore: number;
   exerciseScore: number;
+  manualScore: number;
   totalScore: number;
 }
 
 export interface RankedStudent extends StudentScoreData {
   rank: number;
+  /** 进步榜：本周积分 */
+  thisWeek?: number;
+  /** 进步榜：上周积分 */
+  lastWeek?: number;
+  /** 进步榜：本周增长量 */
+  growth?: number;
 }
 
 /**
@@ -114,19 +138,23 @@ export interface RankedStudent extends StudentScoreData {
 export function rankStudents(
   students: { id: string, name: string }[],
   dietRecords: DietRecord[],
-  exerciseRecords: ExerciseRecord[]
+  exerciseRecords: ExerciseRecord[],
+  manualScoreRecords?: ManualScoreRecord[]
 ): RankedStudent[] {
   const scoreDataList: StudentScoreData[] = students.map(student => {
     const studentDiet = dietRecords.filter(r => r.studentId === student.id);
     const studentExercise = exerciseRecords.filter(r => r.studentId === student.id);
+    const studentManual = manualScoreRecords ? manualScoreRecords.filter(r => r.studentId === student.id) : [];
     const dietScore = calculateDietScore(studentDiet);
     const exerciseScore = calculateExerciseScore(studentExercise);
+    const manualScore = calculateManualScore(studentManual);
     return {
       studentId: student.id,
       name: student.name,
       dietScore,
       exerciseScore,
-      totalScore: calculateTotalScore(studentDiet, studentExercise)
+      manualScore,
+      totalScore: dietScore + exerciseScore + manualScore
     };
   });
 
@@ -157,7 +185,8 @@ export function rankStudents(
 export function rankStudentsThisWeek(
   students: { id: string, name: string }[],
   dietRecords: DietRecord[],
-  exerciseRecords: ExerciseRecord[]
+  exerciseRecords: ExerciseRecord[],
+  manualScoreRecords?: ManualScoreRecord[]
 ): RankedStudent[] {
   const { mondayStr, sundayStr } = getCurrentWeekRange();
   const weekDiet = dietRecords.filter(r => {
@@ -168,7 +197,11 @@ export function rankStudentsThisWeek(
     const d = r.date.substring(0, 10);
     return d >= mondayStr && d <= sundayStr;
   });
-  return rankStudents(students, weekDiet, weekExercise);
+  const weekManual = manualScoreRecords ? manualScoreRecords.filter(r => {
+    const d = r.date;
+    return d >= mondayStr && d <= sundayStr;
+  }) : [];
+  return rankStudents(students, weekDiet, weekExercise, weekManual);
 }
 
 /**

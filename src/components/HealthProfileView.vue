@@ -3,15 +3,32 @@ import { ref, computed, onMounted } from 'vue';
 import { useAppStore } from '../store/app';
 import { uploadFile } from '../lib/api';
 import { NavBar, Card } from './ui';
-import { Activity, FileText, ClipboardList, Stethoscope, UploadCloud, X, Pencil, ChevronRight, ChevronDown, Trophy } from 'lucide-vue-next';
+import { Activity, FileText, ClipboardList, Stethoscope, UploadCloud, X, Pencil, ChevronRight, ChevronDown, Trophy, Lock, Bell, Gift } from 'lucide-vue-next';
 import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem, Popup as VanPopup, TimePicker as VanTimePicker } from 'vant';
 import { buildMedicalData } from '../lib/medicalData';
-import { MOCK_METRIC_VALUES } from '../mock/data';
+import { MOCK_METRIC_VALUES, MOCK_STUDENT_METRIC_VALUES } from '../mock/data';
 
 const store = useAppStore();
 
-// Build medical data from dynamic configs + mock values, with gender-aware abnormal detection
-const medicalData = computed(() => buildMedicalData(store.metricConfigs, MOCK_METRIC_VALUES, store.user?.gender));
+// 未读批注数（tabbar badge）
+const unreadCount = computed(() => {
+  if (store.user?.role !== 'student') return 0;
+  const id = store.user.id;
+  const campId = store.getStudentCampId(id);
+  const diet = campId ? store.getCampDietRecords(campId) : store.dietRecords;
+  const ex = campId ? store.getCampExerciseRecords(campId) : store.exerciseRecords;
+  const wt = campId ? store.getCampWeightRecords(campId) : store.weightRecords;
+  return diet.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead).length
+    + ex.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead).length
+    + wt.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead).length;
+});
+
+// Build medical data from dynamic configs + per-student mock values, with gender-aware abnormal detection
+const medicalData = computed(() => {
+  const studentId = store.user?.id;
+  const values = (studentId && MOCK_STUDENT_METRIC_VALUES[studentId]) || MOCK_METRIC_VALUES;
+  return buildMedicalData(store.metricConfigs, values, store.user?.gender);
+});
 
 // Collapsible category state - default all expanded (empty set = nothing collapsed)
 const collapsedCats = ref<Set<string>>(new Set());
@@ -32,12 +49,25 @@ const showEditBasic = ref(false);
 const showEditLifestyle = ref(false);
 const editForm = ref<any>({});
 
+// 规范化旧版问卷数据（统一选项值）
+function normalizeQData(raw: any): any {
+  if (!raw) return raw;
+  const d = { ...raw };
+  // 兼容旧版 snack 值
+  if (d.snack === '很少') d.snack = '否';
+  else if (d.snack === '经常') d.snack = '是';
+  // 兼容旧版 drinkAlcohol/smoke 值
+  if (d.drinkAlcohol === '无') d.drinkAlcohol = '从不';
+  if (d.smoke === '无') d.smoke = '从不';
+  return d;
+}
+
 onMounted(() => {
   const saved = localStorage.getItem('submitted_questionnaire') || localStorage.getItem('draft_questionnaire');
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      qData.value = parsed.formData || parsed;
+      qData.value = normalizeQData(parsed.formData || parsed);
     } catch (e) {
       // ignore
     }
@@ -97,6 +127,7 @@ const openReport = (r: any) => {
 // ─── 编辑功能 ─────────────────────────────────────
 function openEditBasic() {
   editForm.value = {
+    gender: store.user?.gender || 'male',
     height: qData.value?.height || '',
     weight: qData.value?.weight || '',
     hasChronic: qData.value?.hasChronic || '无',
@@ -115,9 +146,9 @@ function openEditLifestyle() {
     sleepTime: qData.value?.sleepTime || '',
     wakeTime: qData.value?.wakeTime || '',
     sleepDuration: qData.value?.sleepDuration || '',
-    drinkAlcohol: qData.value?.drinkAlcohol || '无',
-    smoke: qData.value?.smoke || '无',
-    snack: qData.value?.snack || '偶尔',
+    drinkAlcohol: qData.value?.drinkAlcohol || '从不',
+    smoke: qData.value?.smoke || '从不',
+    snack: qData.value?.snack || '否',
     dailyWater: qData.value?.dailyWater || '',
     exerciseFrequency: qData.value?.exerciseFrequency || '',
     exerciseDuration: qData.value?.exerciseDuration || '',
@@ -127,6 +158,10 @@ function openEditLifestyle() {
 }
 
 function saveBasic() {
+  // 更新性别到 store（同步 user + students + localStorage）
+  if (editForm.value.gender && editForm.value.gender !== store.user?.gender) {
+    store.updateUserProfile({ gender: editForm.value.gender });
+  }
   const newQData = { ...(qData.value || {}), ...editForm.value };
   // 清理：如果选"无"，清空详情
   if (newQData.hasChronic === '无') newQData.chronicDetails = '';
@@ -181,7 +216,7 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-20 font-sans">
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-28 font-sans">
     <!-- 上传报告弹窗 -->
     <VanPopup v-model:show="showUploadModal" position="center" closeable close-icon-position="top-right" class="custom-popup">
       <div class="p-5 max-h-[85vh]">
@@ -214,6 +249,14 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
       <div class="p-5 pb-8">
         <h3 class="font-bold text-gray-900 mb-4 text-center">编辑基础与健康信息</h3>
         <div class="space-y-4">
+          <!-- 性别 -->
+          <div>
+            <label class="text-sm text-gray-500 mb-1 block">性别</label>
+            <div class="flex gap-2">
+              <button v-for="opt in [{ v: 'male', l: '男' }, { v: 'female', l: '女' }]" :key="opt.v" @click="editForm.gender = opt.v"
+                :class="['flex-1 py-2 rounded-lg text-sm border transition-colors', editForm.gender === opt.v ? 'border-[#07C160] bg-[#07C160]/10 text-[#07C160] font-medium' : 'border-gray-200 text-gray-600']">{{ opt.l }}</button>
+            </div>
+          </div>
           <!-- 身高 -->
           <div>
             <label class="text-sm text-gray-500 mb-1 block">身高 (cm)</label>
@@ -297,7 +340,7 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
           <div>
             <label class="text-sm text-gray-500 mb-1 block">饮酒</label>
             <div class="flex gap-2">
-              <button v-for="opt in ['无', '偶尔', '经常']" :key="opt" @click="editForm.drinkAlcohol = opt"
+              <button v-for="opt in ['从不', '偶尔', '经常']" :key="opt" @click="editForm.drinkAlcohol = opt"
                 :class="['flex-1 py-2 rounded-lg text-sm border transition-colors', editForm.drinkAlcohol === opt ? 'border-[#07C160] bg-[#07C160]/10 text-[#07C160] font-medium' : 'border-gray-200 text-gray-600']">{{ opt }}</button>
             </div>
           </div>
@@ -305,7 +348,7 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
           <div>
             <label class="text-sm text-gray-500 mb-1 block">吸烟</label>
             <div class="flex gap-2">
-              <button v-for="opt in ['无', '偶尔', '经常', '已戒']" :key="opt" @click="editForm.smoke = opt"
+              <button v-for="opt in ['从不', '偶尔', '经常', '已戒']" :key="opt" @click="editForm.smoke = opt"
                 :class="['flex-1 py-2 rounded-lg text-sm border transition-colors', editForm.smoke === opt ? 'border-[#07C160] bg-[#07C160]/10 text-[#07C160] font-medium' : 'border-gray-200 text-gray-600']">{{ opt }}</button>
             </div>
           </div>
@@ -313,7 +356,7 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
           <div>
             <label class="text-sm text-gray-500 mb-1 block">经常吃零食</label>
             <div class="flex gap-2">
-              <button v-for="opt in ['很少', '偶尔', '经常']" :key="opt" @click="editForm.snack = opt"
+              <button v-for="opt in ['否', '是']" :key="opt" @click="editForm.snack = opt"
                 :class="['flex-1 py-2 rounded-lg text-sm border transition-colors', editForm.snack === opt ? 'border-[#07C160] bg-[#07C160]/10 text-[#07C160] font-medium' : 'border-gray-200 text-gray-600']">{{ opt }}</button>
             </div>
           </div>
@@ -374,6 +417,7 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
             </button>
           </h3>
           <div class="space-y-3 text-sm">
+            <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">性别</span><span class="text-gray-900">{{ store.user?.gender === 'female' ? '女' : '男' }}</span></div>
             <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">身高</span><span class="text-gray-900">{{ qData?.height || '--' }} cm</span></div>
             <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">体重</span><span class="text-gray-900">{{ qData?.weight || '--' }} kg</span></div>
             <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">疾病史/慢性疾病</span><span class="text-gray-900">{{ qData?.hasChronic === '有' ? qData.chronicDetails : '无' }}</span></div>
@@ -407,16 +451,21 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
         </p>
       </Card>
 
-      <Card class="bg-gradient-to-r from-[#07C160]/10 to-[#07C160]/5 border-[#07C160]/20 cursor-pointer hover:shadow-md transition-shadow" @click="store.setCurrentView('camp-report')">
+      <Card class="bg-gradient-to-r from-[#07C160]/10 to-[#07C160]/5 border-[#07C160]/20 cursor-pointer hover:shadow-md transition-shadow" @click="store.canViewCampReport(store.user?.id || '') ? store.setCurrentView('camp-report') : undefined">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-full bg-[#07C160]/15 flex items-center justify-center shrink-0">
             <Trophy class="w-5 h-5 text-[#07C160]" />
           </div>
           <div class="flex-1">
-            <div class="font-bold text-gray-900 text-sm">结营报告</div>
-            <div class="text-xs text-gray-500 mt-0.5">查看你的打卡统计、体重变化和健康指标改善</div>
+            <div class="font-bold text-gray-900 text-sm flex items-center gap-1.5">
+              结营报告
+              <Lock v-if="!store.canViewCampReport(store.user?.id || '')" class="w-3.5 h-3.5 text-gray-400" />
+            </div>
+            <div class="text-xs text-gray-500 mt-0.5">
+              {{ store.canViewCampReport(store.user?.id || '') ? '查看你的打卡统计、体重变化和健康指标改善' : '营期结束后自动生成' }}
+            </div>
           </div>
-          <ChevronRight class="w-4 h-4 text-[#07C160]" />
+          <ChevronRight v-if="store.canViewCampReport(store.user?.id || '')" class="w-4 h-4 text-[#07C160]" />
         </div>
       </Card>
 
@@ -497,10 +546,18 @@ function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
     </VanPopup>
 
     <!-- Bottom Nav (Vant Tabbar) -->
-    <VanTabbar class="custom-tabbar" :model-value="1">
+    <VanTabbar class="custom-tabbar" :model-value="3">
       <VanTabbarItem @click="store.setCurrentView('dashboard')">
         <template #icon><Activity class="h-6 w-6" /></template>
         首页
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('activity-hub')">
+        <template #icon><Gift class="h-6 w-6" /></template>
+        活动
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('messages')" :badge="unreadCount > 0 ? unreadCount : undefined">
+        <template #icon><Bell class="h-6 w-6" /></template>
+        消息
       </VanTabbarItem>
       <VanTabbarItem>
         <template #icon><FileText class="h-6 w-6" /></template>

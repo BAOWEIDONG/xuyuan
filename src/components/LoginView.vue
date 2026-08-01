@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { showDialog, Checkbox as VanCheckbox } from 'vant';
+import { showDialog, Checkbox as VanCheckbox, showToast } from 'vant';
 import { useAppStore } from '../store/app';
 import { Button, NavBar } from './ui';
 import { MessageCircle, UserCircle, Dumbbell, Leaf, Activity } from 'lucide-vue-next';
@@ -29,28 +29,58 @@ const handlePhoneSubmit = () => {
     error.value = '请先勾选同意《服务协议》与《隐私政策》';
     return;
   }
-  if (phone.value.length === 11 && code.value.length === 6) {
-    error.value = '';
-    store.setUser({
-      id: role.value === 'student' ? 's1' : `usr_${Date.now()}`,
-      role: role.value,
-      name: role.value === 'student' ? '李明' : role.value === 'coach' ? '李教练' : '王营养师',
-      phone: phone.value,
-    });
-    if (role.value === 'coach') store.setCurrentView('coach-dashboard');
-    else if (role.value === 'dietitian') store.setCurrentView('dietitian-dashboard');
-    else store.setCurrentView('questionnaire');
-  } else {
+  if (phone.value.length !== 11 || code.value.length !== 6) {
     error.value = '请输入正确的11位手机号和6位验证码';
+    return;
   }
+
+  // 校验：手机号必须在账户管理中已配置且角色匹配、状态启用
+  const account = store.accounts.find(
+    (a) => a.phone === phone.value && a.role === role.value && a.active,
+  );
+
+  if (!account) {
+    // 尝试找到该手机号但角色不匹配的账户，给出更精确的提示
+    const wrongRoleAccount = store.accounts.find((a) => a.phone === phone.value && a.active);
+    if (wrongRoleAccount) {
+      const roleLabel = wrongRoleAccount.role === 'student' ? '学员' : wrongRoleAccount.role === 'coach' ? '教练' : '营养师';
+      error.value = `该手机号已注册为${roleLabel}，请切换角色后登录`;
+    } else {
+      const inactiveAccount = store.accounts.find((a) => a.phone === phone.value);
+      if (inactiveAccount) {
+        error.value = '该账户已被禁用，请联系营养师启用';
+      } else {
+        error.value = '该手机号未在系统中配置，请联系营养师添加账户';
+      }
+    }
+    return;
+  }
+
+  error.value = '';
+  // 从 students 列表补充 gender/age 信息
+  const studentInfo = store.students.find((s) => s.id === account.id);
+  store.setUser({
+    id: account.id,
+    role: account.role,
+    name: account.name,
+    phone: account.phone,
+    gender: studentInfo?.gender,
+    age: studentInfo?.age,
+  });
+  const roleLabel = account.role === 'dietitian' ? '营养师' : account.role === 'coach' ? '教练' : '学员';
+  showToast(`欢迎回来${account.name ? '，' + roleLabel + ' ' + account.name : '，' + roleLabel}`);
+
+  if (account.role === 'coach') store.setCurrentView('coach-dashboard');
+  else if (account.role === 'dietitian') store.setCurrentView('dietitian-dashboard');
+  else store.setCurrentView('questionnaire');
 };
 </script>
 
 <template>
-  <div v-if="step === 1" class="flex min-h-full flex-col bg-gradient-to-b from-[#F7F8FA] to-white">
+  <div v-if="step === 1" class="flex flex-col bg-gradient-to-b from-[#F7F8FA] to-white" style="min-height: 100vh; min-height: 100dvh;">
     <NavBar title="授权登录" />
-    <div class="flex flex-1 flex-col items-center justify-center p-6 space-y-12">
-      <div class="flex flex-col items-center space-y-4">
+    <div class="flex flex-1 flex-col items-center justify-center p-6 space-y-10">
+      <div class="flex flex-col items-center space-y-4 mt-4">
         <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-[#07C160] to-[#04a551] shadow-lg shadow-[#07C160]/30">
           <Activity class="h-12 w-12 text-white" />
         </div>
@@ -94,13 +124,18 @@ const handlePhoneSubmit = () => {
           登录/注册
         </Button>
       </div>
+
+      <p class="text-[10px] text-gray-400 text-center leading-relaxed">
+        只有营养师配置了手机号的账户才能登录<br />
+        测试账号：18888888888（营养师）
+      </p>
     </div>
   </div>
 
-  <div v-else class="flex min-h-screen flex-col bg-white">
+  <div v-else class="flex flex-col bg-white" style="min-height: 100vh; min-height: 100dvh;">
     <NavBar title="绑定手机号" :on-back="() => (step = 1)" />
 
-    <div class="flex-1 flex flex-col px-8 pt-12 pb-6">
+    <div class="flex-1 flex flex-col px-6 pt-12 pb-6">
       <div class="mb-10">
         <h2 class="text-2xl font-bold text-gray-900 mb-2">安全验证</h2>
         <p class="text-sm text-gray-500">为了保障您的账号安全，请绑定您的常用手机号</p>
@@ -121,6 +156,7 @@ const handlePhoneSubmit = () => {
         <div class="space-y-1 relative flex items-center border-b border-gray-200 focus-within:border-[#07C160] transition-colors">
           <input
             type="number"
+            inputmode="numeric"
             placeholder="请输入6位验证码"
             class="flex-1 py-4 px-2 text-lg focus:outline-none bg-transparent placeholder-gray-300"
             :value="code"

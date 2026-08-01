@@ -1,5 +1,31 @@
 export type Role = 'student' | 'coach' | 'dietitian';
 
+// ============================================================================
+//  账户管理类型 (Account Management)
+// ============================================================================
+
+/** 营期/期 */
+export interface Camp {
+  id: string;
+  name: string;        // 如 "第一期"
+  startDate?: string;  // 开营日期 YYYY-MM-DD
+  endDate?: string;    // 结营日期 YYYY-MM-DD
+  status: 'upcoming' | 'active' | 'ended';
+}
+
+/** 账户（手机号 = 登录凭证，只有配置了手机号的人才能登录） */
+export interface Account {
+  id: string;
+  phone: string;       // 手机号（唯一登录凭证）
+  name: string;        // 姓名
+  role: Role;          // student | coach | dietitian
+  /** 学员所属期（可多选，同一人可参与多期；教练/营养师不强制） */
+  campIds?: string[];
+  /** 是否启用（禁用后该手机号无法登录） */
+  active: boolean;
+  createdAt: string;   // 创建时间 YYYY-MM-DD HH:mm:ss
+}
+
 export interface MedicalReport {
   url: string;
   type: 'image' | 'pdf';
@@ -27,6 +53,8 @@ export interface WeightRecord {
   date: string; // YYYY-MM-DD HH:mm:ss
   weight: number;
   studentId?: string; // 用于多学员数据过滤（营养师端）
+  /** 所属营期 ID */
+  campId?: string;
   /** 打卡照片 */
   photos?: string[];
   /** 营养师对该条体重记录的批注 */
@@ -48,6 +76,8 @@ export interface ExerciseRecord {
   type: string;
   duration: number;
   intensity: number;
+  /** 所属营期 ID */
+  campId?: string;
   notes?: string;
   photos?: string[];
   /** 运动视频 URL 列表 */
@@ -71,6 +101,8 @@ export interface DietRecord {
   meal: 'breakfast' | 'lunch' | 'dinner' | 'snack';
   description: string;
   photos: string[];
+  /** 所属营期 ID */
+  campId?: string;
   dietitianComment?: string;
   dietitianName?: string;
   dietitianCommentDate?: string;
@@ -84,6 +116,24 @@ export interface DietRecord {
   hasStaple?: boolean;    // 有主食
   hasProtein?: boolean;   // 有蛋白质
   hasVegetable?: boolean; // 有蔬菜
+}
+
+/** 营养师手动加减分记录（用于补录线下打卡积分等） */
+export interface ManualScoreRecord {
+  id: string;
+  studentId: string;
+  /** 加减分值：正数=加分，负数=减分 */
+  points: number;
+  /** 原因说明 */
+  reason: string;
+  /** 操作营养师姓名 */
+  dietitianName: string;
+  /** 创建时间 YYYY-MM-DD HH:mm:ss */
+  createdAt: string;
+  /** 关联日期 YYYY-MM-DD（用于周榜过滤） */
+  date: string;
+  /** 所属营期 ID */
+  campId?: string;
 }
 
 export interface CoachActivityRecord {
@@ -104,10 +154,14 @@ export interface RewardTier {
   imageUrl: string;
   stock: number;
   description?: string;
+  /** 所属营期 ID（按营期独立配置奖品） */
+  campId?: string;
   /** 奖品来源：streak=连续打卡奖励 / activity=趣味活动奖品 */
   source?: 'streak' | 'activity';
   /** 关联的趣味活动类型（source=activity 时有效）：milestone=阶梯减重 / weekly=每周挑战 / lucky=全勤抽奖 */
   activityType?: 'milestone' | 'weekly' | 'lucky';
+  /** 支持的领取方式（营养师配置，学员从中选择）：shipped=邮寄 / in-person=线下领取 */
+  deliveryMethods?: ('shipped' | 'in-person')[];
 }
 
 export interface RewardClaim {
@@ -115,6 +169,8 @@ export interface RewardClaim {
   tierId: string;
   studentId: string;
   studentName: string;
+  /** 所属营期 ID */
+  campId?: string;
   recipientName: string;
   recipientPhone: string;
   recipientAddress: string;
@@ -135,6 +191,52 @@ export interface RewardClaim {
   deliveryMethod?: 'shipped' | 'in-person';
   /** 关联活动类型（仅活动奖励） */
   activityType?: 'milestone' | 'weekly' | 'lucky';
+}
+
+// Points mall types
+/** 积分商城商品 */
+export interface PointProduct {
+  id: string;
+  name: string;
+  imageUrl: string;
+  description: string;
+  /** 所需积分 */
+  pointsRequired: number;
+  stock: number;
+  active: boolean;
+  /** 支持的配送方式 */
+  deliveryOptions: ('shipped' | 'in-person')[];
+}
+
+/** 积分兑换记录 */
+export interface PointExchangeRecord {
+  id: string;
+  studentId: string;
+  studentName: string;
+  productId: string;
+  productName: string;
+  productImage: string;
+  /** 消耗积分 */
+  pointsSpent: number;
+  exchangeDate: string;
+  /** 兑换状态：pending=待发货 / fulfilled=已发货 / cancelled=已取消 */
+  status: 'pending' | 'fulfilled' | 'cancelled';
+  /** 配送方式 */
+  deliveryMethod?: 'shipped' | 'in-person';
+  /** 快递单号 */
+  trackingNumber?: string;
+  /** 发货时间 */
+  shipDate?: string;
+  /** 线下发放时间 */
+  deliveredAt?: string;
+  /** 营期ID */
+  campId?: string;
+  /** 收货人姓名 */
+  recipientName?: string;
+  /** 收货人电话 */
+  recipientPhone?: string;
+  /** 收货地址 */
+  recipientAddress?: string;
 }
 
 // Meal time configuration
@@ -215,7 +317,7 @@ export interface CheckinStats {
   longestStreak: number;
   /** 总运动时长（分钟） */
   totalExerciseDuration: number;
-  /** 饮食总得分（每日封顶3分） */
+  /** 饮食总得分（每日封顶6分） */
   totalDietScore: number;
 }
 
@@ -284,11 +386,11 @@ export interface DietitianCampSummary {
   /** 有效人数（有前后体成分检测数据的学员） */
   validStudentCount: number;
   campDays: number;
-  /** 平均体重变化（基于有效人数） */
+  /** 平均体重变化（基于有体重记录的学员） */
   avgWeightChange: number | null;
-  /** 平均完成率（基于有效人数） */
+  /** 平均完成率（基于全部学员） */
   avgCompletionRate: number | null;
-  /** 平均打卡天数（基于有效人数） */
+  /** 平均打卡天数（基于全部学员） */
   avgCheckinDays: number | null;
   /** 平均异常改善数（基于有效人数） */
   avgAbnormalImproved: number | null;
@@ -315,7 +417,7 @@ export interface EnterpriseCampReport {
   /** 减重 ≥3kg 的人数及占比（基于有体重记录者） */
   weightGoalCount: number;
   weightGoalRate: number | null;
-  /** 减重总人数 / 有体重记录人数 */
+  /** 减重总人数（分母为参营总人数） */
   weightLossCount: number;
   weightRecordCount: number;
   /** 累计打卡人次（三类打卡记录总数） */
@@ -324,12 +426,30 @@ export interface EnterpriseCampReport {
   totalExerciseMinutes: number;
   /** 异常指标恢复正常：总项次数（全体学员 turnedNormal 之和） */
   abnormalImprovedTotal: number;
+  /** 平均打卡天数（全体学员） */
+  avgCheckinDays: number | null;
+  /** 平均最长连续打卡天数 */
+  avgLongestStreak: number | null;
+  /** 坚持≥70%营期天数的人数 */
+  streakChampionCount: number;
+  /** 平均饮食打卡天数 */
+  avgDietCheckinDays: number | null;
+  /** 平均运动打卡天数 */
+  avgExerciseCheckinDays: number | null;
+  /** 体脂下降人数（有体脂数据的学员中） */
+  bodyFatLossCount: number;
+  bodyFatRecordCount: number;
+  /** 肌肉量增加人数 */
+  muscleGainCount: number;
+  muscleRecordCount: number;
   /** 改善率最高的指标 Top N（按 improvementRate 降序，过滤样本过少的） */
   topImprovedMetrics: Array<{
     name: string;
     unit: string;
     avgChange: number | null;
     improvementRate: number | null;
+    improvedCount: number;
+    totalCount: number;
   }>;
   /** 自动提炼的本期亮点（2~4 条，可直接放进汇报 PPT） */
   highlights: string[];

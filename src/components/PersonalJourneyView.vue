@@ -1,16 +1,41 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useAppStore } from '../store/app';
-import { NavBar, Card } from './ui';
-import { Activity, Flame, TrendingDown, Calendar, Dumbbell, Coffee, Trophy, Award, Download, Lock, CheckCircle2, BookOpen } from 'lucide-vue-next';
+import { NavBar, Card, ChartRulePopup } from './ui';
+import { Activity, TrendingDown, Dumbbell, Award, Download, Lock, CheckCircle2, BookOpen, FileText, Bell, Gift } from 'lucide-vue-next';
 import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem, Popup as VanPopup } from 'vant';
 import { MOCK_STUDENT_METRIC_VALUES } from '../mock/data';
 import { generatePersonalJourney } from '../lib/journey';
-import { generateStudentReport, weightTrendToSvgPoints } from '../lib/campReport';
+import { generateStudentReport } from '../lib/campReport';
 import { exportElementAsImage } from '../lib/exportImage';
 import type { Achievement } from '../types';
 
 const store = useAppStore();
+
+// ─── 营期切换（多期时显示） ──────────────────────────────
+const availableCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+const activeCampId = computed(() => {
+  if (store.selectedCampId && availableCamps.value.some(c => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  const active = availableCamps.value.find(c => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
+
+// 按营期过滤打卡记录
+const campDiet = computed(() => activeCampId.value ? store.getCampDietRecords(activeCampId.value) : store.dietRecords);
+const campEx = computed(() => activeCampId.value ? store.getCampExerciseRecords(activeCampId.value) : store.exerciseRecords);
+const campWt = computed(() => activeCampId.value ? store.getCampWeightRecords(activeCampId.value) : store.weightRecords);
+
+// 未读批注数（tabbar badge）
+const unreadCount = computed(() => {
+  if (store.user?.role !== 'student') return 0;
+  const id = store.user.id;
+  const diet = campDiet.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const ex = campEx.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const wt = campWt.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  return diet.length + ex.length + wt.length;
+});
 
 // 获取当前学员数据
 const studentId = computed(() => store.user?.id || 's1');
@@ -18,19 +43,18 @@ const studentName = computed(() => store.user?.name || '学员');
 const studentGender = computed(() => store.user?.gender);
 
 // 体重记录
-const studentWeights = computed(() => {
-  const id = studentId.value;
-  return store.weightRecords.filter((r) => r.studentId === id || !r.studentId);
-});
+const studentWeights = computed(() =>
+  campWt.value.filter((r) => r.studentId === studentId.value),
+);
 
 // 饮食记录
 const studentDiets = computed(() =>
-  store.dietRecords.filter((r) => r.studentId === studentId.value || (studentId.value === 's1' && !r.studentId)),
+  campDiet.value.filter((r) => r.studentId === studentId.value),
 );
 
 // 运动记录
 const studentExercises = computed(() =>
-  store.exerciseRecords.filter((r) => r.studentId === studentId.value || (studentId.value === 's1' && !r.studentId)),
+  campEx.value.filter((r) => r.studentId === studentId.value),
 );
 
 // 生成个人历程数据
@@ -51,23 +75,75 @@ const report = computed(() =>
 );
 const unlockedCount = computed(() => report.value.achievements.filter((a) => a.unlocked).length);
 
-// 体重趋势 SVG
-const svgPoints = computed(() => weightTrendToSvgPoints(journey.value.weightTrend, 280, 100, 20));
+// 体重趋势 SVG - 动态宽度，数据多时支持横向滚动
+const CHART_MIN_WIDTH = 280;
+const CHART_POINT_SPACING = 55; // 每个数据点占用的水平像素
+const CHART_HEIGHT = 140; // SVG 高度（含标签）
+const CHART_PAD_X = 20; // 左右边距
+const CHART_PAD_TOP = 25; // 顶部留白（放数值标签）
+const CHART_PLOT_HEIGHT = 70; // 折线区域高度
+const CHART_PAD_BOTTOM = 25; // 底部留白（放日期标签）
 
-// 热力图颜色 - 使用明显不同的颜色区分各等级
-const heatmapColor = (completionCount: number, isComplete: boolean): string => {
-  if (isComplete) return 'bg-[#07C160]';       // 全部完成：绿色
-  if (completionCount === 0) return 'bg-gray-100';  // 无打卡：灰色
-  if (completionCount <= 2) return 'bg-amber-300';   // 1-2项：琥珀色
-  return 'bg-sky-400';                               // 3-4项：天蓝色
+const chartWidth = computed(() => {
+  const n = journey.value.weightTrend.records.length;
+  if (n <= 1) return CHART_MIN_WIDTH;
+  const needed = CHART_PAD_X * 2 + (n - 1) * CHART_POINT_SPACING;
+  return Math.max(CHART_MIN_WIDTH, needed);
+});
+
+// 体重 SVG 坐标计算辅助
+const weightRange = computed(() => {
+  const records = journey.value.weightTrend.records;
+  if (records.length === 0) return { min: 0, max: 1 };
+  const weights = records.map((r) => r.weight);
+  const minW = Math.min(...weights);
+  const maxW = Math.max(...weights);
+  // 把 5% 减重目标线也纳入范围，确保虚线在可视区内
+  const target5 = (journey.value.weightTrend.startWeight || minW) * 0.95;
+  return { min: Math.min(minW, target5), max: maxW };
+});
+const weightCy = (weight: number) => {
+  const range = weightRange.value.max - weightRange.value.min || 1;
+  return CHART_PAD_TOP + CHART_PLOT_HEIGHT - ((weight - weightRange.value.min) / range) * CHART_PLOT_HEIGHT;
 };
+const weightCx = (i: number) => CHART_PAD_X + i * CHART_POINT_SPACING;
+
+// SVG polyline points
+const svgPoints = computed(() => {
+  const records = journey.value.weightTrend.records;
+  if (records.length === 0) return '';
+  return records.map((r, i) => `${weightCx(i)},${weightCy(r.weight)}`).join(' ');
+});
+
+// 格式化日期（M.D）
+const fmtDate = (dateStr: string): string => {
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}.${d.getDate()}`;
+};
+
+// 体重里程碑标注
+const weightMilestones = computed(() => {
+  const records = journey.value.weightTrend.records;
+  if (records.length < 2) return null;
+  const startW = journey.value.weightTrend.startWeight;
+  const lowestW = Math.min(...records.map((r) => r.weight));
+  const lowestIdx = records.findIndex((r) => r.weight === lowestW);
+  return {
+    lowestCx: weightCx(lowestIdx),
+    lowestCy: weightCy(lowestW),
+    lowestWeight: lowestW,
+    target3: startW * 0.97,
+    target5: startW * 0.95,
+    target3Cy: weightCy(startW * 0.97),
+    target5Cy: weightCy(startW * 0.95),
+  };
+});
+
+// 每周完成率图表最大值
+const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) => w.completionRate), 1));
 
 // 格式化
 const fmt = (v: number | null, digits = 1): string => v === null ? '--' : v.toFixed(digits);
-const fmtDate = (d: string): string => {
-  const date = new Date(d);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-};
 
 // 成就弹窗
 const selectedAchievement = ref<Achievement | null>(null);
@@ -77,23 +153,17 @@ const openAchievementDetail = (ach: Achievement) => {
   showAchievementPopup.value = true;
 };
 
-// 长图导出（微信可用；未装 html2canvas 时自动降级为打印）
+// 长图导出
 const exportRef = ref<HTMLElement | null>(null);
 const exportPDF = () => {
   if (exportRef.value) {
     exportElementAsImage(exportRef.value, `个人历程_${studentName.value}_${new Date().toISOString().split('T')[0]}`);
   }
 };
-
-// 饮食得分图表最大值
-const dietScoreMax = computed(() => Math.max(...journey.value.dailyDietScores.map((d) => d.score), 3));
-
-// 每周完成率图表最大值
-const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) => w.completionRate), 1));
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-20 font-sans">
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-24 font-sans">
     <NavBar title="个人历程" :on-back="store.goBack">
       <template #right>
         <button class="text-[#07C160] hover:bg-green-50 p-2 rounded-full transition-colors" @click="exportPDF">
@@ -113,17 +183,14 @@ const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) =
           <div class="bg-black/15 rounded-lg py-3">
             <div class="text-2xl font-bold drop-shadow">{{ journey.totalCheckinDays }}</div>
             <div class="text-[10px] mt-0.5">打卡天数</div>
-            <div class="text-[8px] opacity-70 mt-0.5 leading-tight">有任意打卡记录的天数</div>
           </div>
           <div class="bg-black/15 rounded-lg py-3">
             <div class="text-2xl font-bold drop-shadow">{{ journey.completeDays }}</div>
             <div class="text-[10px] mt-0.5">完成天数</div>
-            <div class="text-[8px] opacity-70 mt-0.5 leading-tight">三餐+运动全部完成</div>
           </div>
           <div class="bg-black/15 rounded-lg py-3">
             <div class="text-2xl font-bold drop-shadow">{{ journey.currentStreak }}</div>
             <div class="text-[10px] mt-0.5">当前连续</div>
-            <div class="text-[8px] opacity-70 mt-0.5 leading-tight">从今天往前连续完成</div>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3 mt-3 text-center">
@@ -131,51 +198,30 @@ const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) =
             <span class="text-xs">最长连续 </span>
             <span class="text-sm font-bold drop-shadow">{{ journey.longestStreak }}</span>
             <span class="text-xs"> 天</span>
-            <div class="text-[8px] opacity-70 mt-0.5">营期内最高连续记录</div>
           </div>
           <div class="bg-black/10 rounded-lg py-2">
             <span class="text-xs">累计运动 </span>
             <span class="text-sm font-bold drop-shadow">{{ journey.totalExerciseDuration }}</span>
             <span class="text-xs"> 分钟</span>
-            <div class="text-[8px] opacity-70 mt-0.5">所有运动记录时长之和</div>
           </div>
         </div>
       </div>
 
-      <!-- 打卡热力图 -->
-      <Card>
-        <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2 border-b pb-2">
-          <Calendar class="h-4 w-4 text-[#07C160]" />
-          打卡热力图
-        </h3>
-        <p class="text-[10px] text-gray-400 mb-3">从首次打卡日起逐日统计，颜色越深=完成项数越多</p>
-        <div class="flex flex-wrap gap-1.5">
-          <div
-            v-for="day in journey.dailyCheckins"
-            :key="day.date"
-            class="w-6 h-6 rounded-md cursor-pointer transition-transform hover:scale-125"
-            :class="heatmapColor(day.completionCount, day.isComplete)"
-            :title="`${day.date} ${day.isComplete ? '完成全部' : `完成${day.completionCount}/5项`}`"
-          ></div>
-        </div>
-        <div class="flex items-center gap-3 mt-3 text-[10px] text-gray-500">
-          <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-[#07C160]"></span>全部完成(5/5)</span>
-          <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-sky-400"></span>完成3-4项</span>
-          <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-300"></span>完成1-2项</span>
-          <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-gray-100"></span>未打卡</span>
-        </div>
-        <div class="mt-2 text-[10px] text-gray-400">
-          统计区间：{{ journey.startDate }} 至今，共 {{ journey.journeyDays }} 天
-        </div>
-      </Card>
-
       <!-- 体重趋势 -->
       <Card>
-        <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2 border-b pb-2">
-          <TrendingDown class="h-4 w-4 text-[#07C160]" />
-          体重趋势
-        </h3>
-        <p class="text-[10px] text-gray-400 mb-3">每次体重打卡记录连线，展示体重变化趋势</p>
+        <div class="flex items-center justify-between mb-2 border-b pb-2">
+          <h3 class="font-bold text-gray-900 flex items-center gap-2">
+            <TrendingDown class="h-4 w-4 text-[#07C160]" />
+            体重趋势
+          </h3>
+          <ChartRulePopup title="体重趋势计算规则">
+            <p>记录每次体重打卡的体重值，按时间顺序连成折线。</p>
+            <p><span class="font-bold text-gray-900">初始体重：</span>首条体重记录的值。</p>
+            <p><span class="font-bold text-gray-900">最新体重：</span>最近一条体重记录的值。</p>
+            <p><span class="font-bold text-gray-900">变化量：</span>最新体重 - 初始体重，负值表示体重下降（绿色），正值表示上升（橙色）。</p>
+            <p><span class="font-bold text-gray-900">变化百分比：</span>变化量 ÷ 初始体重 × 100%。</p>
+          </ChartRulePopup>
+        </div>
         <template v-if="journey.weightTrend.records.length > 0">
           <div class="flex items-center justify-between mb-4">
             <div class="text-center">
@@ -194,36 +240,71 @@ const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) =
             </div>
           </div>
           <div v-if="svgPoints" class="w-full">
-            <svg viewBox="0 0 280 100" class="w-full" preserveAspectRatio="none" style="height: 100px;">
-              <defs>
-                <linearGradient id="weightGradJourney" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#07C160" stop-opacity="0.2" />
-                  <stop offset="100%" stop-color="#07C160" stop-opacity="0" />
-                </linearGradient>
-              </defs>
-              <polygon :points="`20,80 ${svgPoints} 260,80`" fill="url(#weightGradJourney)" />
-              <polyline :points="svgPoints" fill="none" stroke="#07C160" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-              <circle
-                v-for="(r, i) in journey.weightTrend.records"
-                :key="i"
-                :cx="20 + (i / (journey.weightTrend.records.length - 1)) * 240"
-                :cy="100 - 20 - ((r.weight - Math.min(...journey.weightTrend.records.map(x => x.weight))) / (Math.max(...journey.weightTrend.records.map(x => x.weight)) - Math.min(...journey.weightTrend.records.map(x => x.weight)) || 1)) * 60"
-                r="3"
-                fill="#07C160"
-              />
-            </svg>
+            <div class="overflow-x-auto overflow-y-hidden -mx-1 px-1" style="-webkit-overflow-scrolling: touch;">
+              <svg :viewBox="`0 0 ${chartWidth} ${CHART_HEIGHT}`" :style="{ width: chartWidth > CHART_MIN_WIDTH ? `${chartWidth}px` : '100%', height: `${CHART_HEIGHT}px` }" preserveAspectRatio="xMidYMid meet" class="block">
+                <defs>
+                  <linearGradient id="weightGradJourney" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#07C160" stop-opacity="0.2" />
+                    <stop offset="100%" stop-color="#07C160" stop-opacity="0" />
+                  </linearGradient>
+                </defs>
+                <!-- 减重 3% 目标线 -->
+                <line v-if="weightMilestones" :x1="CHART_PAD_X" :y1="weightMilestones.target3Cy" :x2="chartWidth - CHART_PAD_X" :y2="weightMilestones.target3Cy" stroke="#07C160" stroke-width="0.5" stroke-dasharray="3,3" opacity="0.4" />
+                <!-- 减重 5% 目标线 -->
+                <line v-if="weightMilestones" :x1="CHART_PAD_X" :y1="weightMilestones.target5Cy" :x2="chartWidth - CHART_PAD_X" :y2="weightMilestones.target5Cy" stroke="#FF976A" stroke-width="0.5" stroke-dasharray="3,3" opacity="0.4" />
+                <!-- 渐变填充 -->
+                <polygon :points="`${CHART_PAD_X},${CHART_PAD_TOP + CHART_PLOT_HEIGHT} ${svgPoints} ${weightCx(journey.weightTrend.records.length - 1)},${CHART_PAD_TOP + CHART_PLOT_HEIGHT}`" fill="url(#weightGradJourney)" />
+                <!-- 折线 -->
+                <polyline :points="svgPoints" fill="none" stroke="#07C160" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" />
+                <!-- 数据点 + 数值标签 + 日期 -->
+                <template v-for="(r, i) in journey.weightTrend.records" :key="i">
+                  <circle :cx="weightCx(i)" :cy="weightCy(r.weight)" r="2.5" fill="#07C160" />
+                  <!-- 体重数值 -->
+                  <text :x="weightCx(i)" :y="weightCy(r.weight) - 6" text-anchor="middle" font-size="8" font-weight="bold" fill="#374151">{{ r.weight.toFixed(1) }}</text>
+                  <!-- 日期 -->
+                  <text :x="weightCx(i)" :y="CHART_HEIGHT - 6" text-anchor="middle" font-size="7" fill="#9CA3AF">{{ fmtDate(r.date) }}</text>
+                </template>
+                <!-- 历史最低点标注 -->
+                <circle v-if="weightMilestones" :cx="weightMilestones.lowestCx" :cy="weightMilestones.lowestCy" r="4" fill="none" stroke="#07C160" stroke-width="1.5" />
+              </svg>
+            </div>
+            <!-- 最低点标签 -->
+            <div v-if="weightMilestones" class="flex items-center gap-1 mt-1 text-[9px] font-bold text-[#07C160]">
+              <span class="inline-block w-2 h-2 rounded-full border border-[#07C160]"></span>
+              历史最低 {{ weightMilestones.lowestWeight.toFixed(1) }} kg
+            </div>
+            <!-- 目标线图例 -->
+            <div v-if="weightMilestones" class="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[9px] text-gray-500">
+              <span class="flex items-center gap-1">
+                <span class="inline-block w-3 border-t border-dashed border-[#07C160]"></span>
+                达标3%目标 {{ weightMilestones.target3.toFixed(1) }}kg
+              </span>
+              <span class="flex items-center gap-1">
+                <span class="inline-block w-3 border-t border-dashed border-[#FF976A]"></span>
+                达标5%目标 {{ weightMilestones.target5.toFixed(1) }}kg
+              </span>
+            </div>
+            <!-- 滑动提示 -->
+            <div v-if="chartWidth > CHART_MIN_WIDTH" class="text-center text-[9px] text-gray-300 mt-1">← 左右滑动查看更多 →</div>
           </div>
         </template>
         <div v-else class="text-center text-sm text-gray-400 py-6">暂无体重记录</div>
       </Card>
 
-      <!-- 每周打卡对比 -->
+      <!-- 每周打卡完成率 -->
       <Card v-if="journey.weeklyStats.length > 0">
-        <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2 border-b pb-2">
-          <Activity class="h-4 w-4 text-[#1677FF]" />
-          每周打卡完成率
-        </h3>
-        <p class="text-[10px] text-gray-400 mb-3">按自然周（周一至周日）统计，首周可能不足7天</p>
+        <div class="flex items-center justify-between mb-3 border-b pb-2">
+          <h3 class="font-bold text-gray-900 flex items-center gap-2">
+            <Activity class="h-4 w-4 text-[#1677FF]" />
+            每周完成率
+          </h3>
+          <ChartRulePopup title="每周完成率计算规则">
+            <p><span class="font-bold text-gray-900">周划分：</span>按自然周（周一至周日）分组，从首条打卡记录所在周开始，首周可能不足7天。</p>
+            <p><span class="font-bold text-gray-900">完成天数：</span>同一天内三餐（早+午+晚）+ 运动 + 体重全部打卡才算"完成"。</p>
+            <p><span class="font-bold text-gray-900">完成率：</span>完成天数 ÷ 该周天数 × 100%。</p>
+            <p><span class="font-bold text-gray-900">颜色分级：</span>≥80% 绿色、50-79% 橙色、&lt;50% 灰色。</p>
+          </ChartRulePopup>
+        </div>
         <div class="flex items-end justify-between gap-2 h-32">
           <div
             v-for="week in journey.weeklyStats"
@@ -240,32 +321,32 @@ const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) =
             <div class="text-[9px] text-gray-400">{{ week.completeDays }}/{{ week.totalDays }}天</div>
           </div>
         </div>
-        <div class="mt-3 pt-3 border-t border-gray-50 space-y-1 text-xs text-gray-500">
-          <div v-for="week in journey.weeklyStats" :key="week.weekLabel" class="flex justify-between">
-            <span>{{ week.weekLabel }}（{{ fmtDate(week.weekStart) }}-{{ fmtDate(week.weekEnd) }}）</span>
-            <span>运动{{ week.exerciseDuration }}分钟 · 饮食{{ week.dietScore }}分</span>
-          </div>
-        </div>
       </Card>
 
       <!-- 运动统计 -->
       <Card v-if="journey.exerciseBreakdown.length > 0">
-        <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2 border-b pb-2">
-          <Dumbbell class="h-4 w-4 text-[#FF976A]" />
-          运动统计
-        </h3>
-        <p class="text-[10px] text-gray-400 mb-3">总时长=所有运动记录时长累加，平均每次=总时长÷运动次数</p>
+        <div class="flex items-center justify-between mb-3 border-b pb-2">
+          <h3 class="font-bold text-gray-900 flex items-center gap-2">
+            <Dumbbell class="h-4 w-4 text-[#FF976A]" />
+            运动统计
+          </h3>
+          <ChartRulePopup title="运动统计计算规则">
+            <p><span class="font-bold text-gray-900">总时长：</span>所有运动记录的 duration 之和（分钟）。</p>
+            <p><span class="font-bold text-gray-900">平均每次：</span>总时长 ÷ 运动总次数。</p>
+            <p><span class="font-bold text-gray-900">类型分布：</span>按运动类型（跑步/游泳/力量训练等）分组统计，进度条长度 = 该类型时长 ÷ 总时长。</p>
+            <p><span class="font-bold text-gray-900">排序：</span>按总时长降序排列。</p>
+          </ChartRulePopup>
+        </div>
         <div class="grid grid-cols-2 gap-3 mb-4 text-center">
           <div class="bg-gray-50 rounded-lg py-3">
             <div class="text-xl font-bold text-gray-900">{{ journey.totalExerciseDuration }}</div>
-            <div class="text-[10px] text-gray-500 mt-1">总运动时长（分钟）</div>
+            <div class="text-[10px] text-gray-500 mt-1">总时长（分钟）</div>
           </div>
           <div class="bg-[#FF976A]/5 rounded-lg py-3">
             <div class="text-xl font-bold text-[#FF976A]">{{ journey.avgExerciseDuration.toFixed(0) }}</div>
             <div class="text-[10px] text-gray-500 mt-1">平均每次（分钟）</div>
           </div>
         </div>
-        <div class="text-[10px] text-gray-400 mb-2">按运动类型分布：</div>
         <div class="space-y-2">
           <div
             v-for="(item, idx) in journey.exerciseBreakdown"
@@ -284,39 +365,11 @@ const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) =
         </div>
       </Card>
 
-      <!-- 饮食得分趋势 -->
-      <Card v-if="journey.dailyDietScores.length > 0">
-        <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2 border-b pb-2">
-          <Coffee class="h-4 w-4 text-[#07C160]" />
-          每日饮食得分
-        </h3>
-        <p class="text-[10px] text-gray-400 mb-3">每日封顶3分，左右滑动查看更多日期</p>
-        <div class="overflow-x-auto -mx-1 px-1" style="-webkit-overflow-scrolling: touch;">
-          <div class="flex items-end gap-1.5 h-28 mb-1" :style="{ minWidth: `${journey.dailyDietScores.length * 32}px` }">
-            <div
-              v-for="day in journey.dailyDietScores"
-              :key="day.date"
-              class="flex flex-col items-center justify-end h-full shrink-0"
-              style="width: 28px;"
-            >
-              <div class="text-[8px] font-bold mb-0.5" :class="day.score >= 2 ? 'text-[#07C160]' : 'text-gray-400'">{{ day.score }}</div>
-              <div
-                class="w-5 rounded-t-sm transition-all min-h-[2px]"
-                :class="day.score >= 3 ? 'bg-[#07C160]' : day.score >= 2 ? 'bg-[#07C160]/60' : day.score >= 1 ? 'bg-[#FF976A]' : 'bg-gray-300'"
-                :style="{ height: `${(day.score / dietScoreMax) * 80}px` }"
-                :title="`${day.date}: ${day.score}分 (${day.meals}餐)`"
-              ></div>
-              <div class="text-[7px] text-gray-400 mt-0.5 leading-none transform -rotate-45 origin-center whitespace-nowrap">{{ fmtDate(day.date) }}</div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
       <!-- 成就墙 -->
       <Card>
         <h3 class="font-bold text-gray-900 mb-4 flex items-center gap-2 border-b pb-2">
           <Award class="h-4 w-4 text-[#FF976A]" />
-          里程里程碑
+          里程碑
           <span class="ml-auto text-xs text-gray-400 font-normal">{{ unlockedCount }}/{{ report.achievements.length }}</span>
         </h3>
         <div class="grid grid-cols-4 gap-3">
@@ -360,8 +413,16 @@ const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) =
         <template #icon><Activity class="h-6 w-6" /></template>
         首页
       </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('activity-hub')">
+        <template #icon><Gift class="h-6 w-6" /></template>
+        活动
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('messages')" :badge="unreadCount > 0 ? unreadCount : undefined">
+        <template #icon><Bell class="h-6 w-6" /></template>
+        消息
+      </VanTabbarItem>
       <VanTabbarItem @click="store.setCurrentView('health-profile')">
-        <template #icon><BookOpen class="h-6 w-6" /></template>
+        <template #icon><FileText class="h-6 w-6" /></template>
         档案
       </VanTabbarItem>
     </VanTabbar>
@@ -381,7 +442,7 @@ const weeklyMax = computed(() => Math.max(...journey.value.weeklyStats.map((w) =
   .mx-auto { margin: 0 !important; }
   .fixed { position: static !important; }
   .overflow-y-auto { overflow: visible !important; }
-  .pb-20 { padding-bottom: 1rem !important; }
+  .pb-24 { padding-bottom: 1rem !important; }
   .pt-12 { padding-top: 0 !important; }
 }
 </style>

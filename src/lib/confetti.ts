@@ -140,7 +140,6 @@ function createOverlay(theme: Theme, message: string, subtitle: string, isReward
 }
 
 // ─── 粒子工厂 ─────────────────────────────────────
-let _idCounter = 0;
 function makeParticle(
   x: number, y: number, angle: number, speed: number,
   colors: string[], delay: number, allowSparkle: boolean
@@ -334,12 +333,23 @@ function runConfetti(theme: Theme, isReward: boolean) {
 }
 
 // ─── 对外接口 ─────────────────────────────────────
+
+/**
+ * 安卓震动反馈（iOS 不支持 navigator.vibrate，静默跳过）
+ * 重震一下 + 轻震一下
+ */
+function vibratePattern() {
+  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+  navigator.vibrate([120, 80, 40]);
+}
+
 export function celebrateCheckin(type: CheckinType) {
   const theme = THEMES[type];
   const msg = theme.messages[Math.floor(Math.random() * theme.messages.length)];
   const sub = SUBTITLES[Math.floor(Math.random() * SUBTITLES.length)];
   createOverlay(theme, msg, sub, false);
   runConfetti(theme, false);
+  vibratePattern();
 }
 
 export function celebrateReward(giftName?: string) {
@@ -348,8 +358,5 @@ export function celebrateReward(giftName?: string) {
   const sub = giftName ? `「${giftName}」已解锁，前往奖励页面领取` : '前往奖励页面领取你的礼品';
   createOverlay(theme, msg, sub, true);
   runConfetti(theme, true);
-}
-
-export function celebrate() {
-  celebrateCheckin('breakfast');
+  vibratePattern();
 }

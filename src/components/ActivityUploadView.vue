@@ -91,7 +91,7 @@ const handleSubmit = () => {
             <div class="grid grid-cols-3 gap-2">
               <template v-if="mediaType === 'video'">
                 <div v-for="(url, index) in videoUrls" :key="index" class="aspect-square rounded-xl bg-black overflow-hidden relative">
-                  <video :src="url" class="w-full min-h-full object-cover cursor-pointer" preload="metadata" @click="store.openVideoPreview(url)" />
+                  <video :src="url" class="w-full min-h-full object-cover cursor-pointer" preload="metadata" playsinline webkit-playsinline @click="store.openVideoPreview(url)" />
                   <button @click="removeVideo(index)" class="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1 z-10">
                     <X class="w-3 h-3" />
                   </button>

@@ -5,12 +5,32 @@ import { useAppStore } from '../store/app';
 import { celebrateCheckin, celebrateReward } from '../lib/confetti';
 import { calculateStreak } from '../lib/streak';
 import { uploadFile } from '../lib/api';
-import { NavBar, Button, Card } from './ui';
+import { NavBar, Button, Card, ChartRulePopup } from './ui';
 import { Scale, TrendingUp, TrendingDown, Minus, Camera, X, ChevronDown, Target, Pencil } from 'lucide-vue-next';
 import { formatDateTime } from '../lib/utils';
 import { useDateGrouping } from '../composables/useDateGrouping';
 
 const store = useAppStore();
+
+// ─── Tab 结构：打卡 / 趋势 / 记录 ────────────────────────
+const activeTab = ref<'checkin' | 'trend' | 'records'>('checkin');
+
+// ─── 营期切换（多期时显示） ──────────────────────────────
+const availableCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+const activeCampId = computed(() => {
+  if (store.selectedCampId && availableCamps.value.some(c => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  const active = availableCamps.value.find(c => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
+
+// 按营期过滤打卡记录
+const campDiet = computed(() => activeCampId.value ? store.getCampDietRecords(activeCampId.value) : store.dietRecords);
+const campEx = computed(() => activeCampId.value ? store.getCampExerciseRecords(activeCampId.value) : store.exerciseRecords);
+const campWt = computed(() => activeCampId.value ? store.getCampWeightRecords(activeCampId.value) : store.weightRecords);
+const campRewardTiers = computed(() => activeCampId.value ? store.getCampRewardTiers(activeCampId.value) : store.rewardTiers);
+
 const weight = ref('');
 const error = ref('');
 const photos = ref<string[]>([]);
@@ -52,10 +72,17 @@ const removePhoto = (index: number) => {
   photos.value = photos.value.filter((_, i) => i !== index);
 };
 
+// 刚提交打卡后跳过 watch 回填，避免输入框被覆盖
+const justSubmitted = ref(false);
+
 watch(
-  [() => store.weightRecords, () => store.user],
+  [() => campWt.value, () => store.user],
   () => {
-    const myRecords = store.weightRecords.filter((r) => r.studentId === store.user?.id || !r.studentId);
+    if (justSubmitted.value) {
+      justSubmitted.value = false;
+      return;
+    }
+    const myRecords = campWt.value.filter((r) => r.studentId === store.user?.id);
     if (myRecords.length > 0) {
       const latest = [...myRecords].sort((a, b) => b.date.localeCompare(a.date))[0];
       weight.value = latest.weight.toString();
@@ -74,28 +101,45 @@ const handleSubmit = () => {
   }
 
   error.value = '';
+  justSubmitted.value = true;
+
+  // 打卡前连续天数
+  const streakBefore = calculateStreak(campEx.value, campDiet.value, campWt.value, store.user?.id);
+
   store.addWeightRecord({
     id: `w_${Date.now()}`,
     studentId: store.user?.id || 's1',
-    date: format(new Date(), 'yyyy-MM-dd HH:mm'),
+    campId: activeCampId.value || undefined,
+    date: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
     weight: parseFloat(val.toFixed(1)),
     photos: photos.value.length > 0 ? photos.value : undefined,
   });
 
-  // Check reward
-  const streakResult = calculateStreak(store.exerciseRecords, store.dietRecords, store.weightRecords, store.user?.id);
-  const matchedTier = store.rewardTiers.find(t => t.requiredDays === streakResult.currentStreak);
-  if (matchedTier) { celebrateReward(matchedTier.name); } else { celebrateCheckin('weight'); }
+  // 仅当连续天数增长且匹配档位且未领取时，触发奖励庆祝
+  const streakAfter = calculateStreak(campEx.value, campDiet.value, campWt.value, store.user?.id);
+  const tierMatched = streakAfter.currentStreak > streakBefore.currentStreak
+    ? campRewardTiers.value.find(t => t.requiredDays === streakAfter.currentStreak)
+    : undefined;
+  const claims = activeCampId.value ? store.getCampRewardClaims(activeCampId.value) : store.rewardClaims;
+  const alreadyClaimed = tierMatched
+    ? claims.some(c => c.tierId === tierMatched.id && c.studentId === store.user?.id)
+    : false;
+  if (tierMatched && !alreadyClaimed) {
+    celebrateReward(tierMatched.name);
+  } else {
+    celebrateCheckin('weight');
+  }
 
-  // Stay on page
+  store.justCheckedIn = true;
   weight.value = '';
   photos.value = [];
+  showPhotoUpload.value = false;
 };
 
 // ---- Weight trend chart ----
 const sortedRecords = computed(() =>
-  [...store.weightRecords]
-    .filter((r) => r.studentId === store.user?.id || !r.studentId)
+  [...campWt.value]
+    .filter((r) => r.studentId === store.user?.id)
     .sort((a, b) => a.date.localeCompare(b.date))
 );
 
@@ -123,18 +167,19 @@ const handleToggleDate = (date: string) => {
 // 默认展开的"今天"分组直接可见，其中的未读批注视为已读
 markGroupCommentsRead(format(new Date(), 'yyyy-MM-dd'));
 
-// 消息中心跳转：自动展开目标日期并滚动到对应记录
+// 消息中心跳转：切到记录Tab，自动展开目标日期并滚动到对应记录
 onMounted(() => {
   if (store.selectedDateStr) {
     const targetDate = store.selectedDateStr;
     store.setSelectedDateStr(null);
+    activeTab.value = 'records';
     if (!isExpanded(targetDate)) toggleDate(targetDate);
     markGroupCommentsRead(targetDate);
     // 双 nextTick 确保 DOM 展开渲染完成后再滚动
     nextTick(() => {
       nextTick(() => {
         const el = document.getElementById(`weight-group-${targetDate}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (el) el.scrollIntoView({ block: 'start' });
       });
     });
   }
@@ -273,14 +318,15 @@ const setRecordRef = (id: string, el: any) => {
   if (el) recordRefs.set(id, el as HTMLElement);
 };
 const scrollToRecord = (recordId: string) => {
-  const rec = store.weightRecords.find((r) => r.id === recordId);
+  const rec = campWt.value.find((r) => r.id === recordId);
   if (!rec) return;
+  activeTab.value = 'records';
   const date = rec.date.substring(0, 10);
   if (!isExpanded(date)) handleToggleDate(date);
   setTimeout(() => {
     const el = recordRefs.get(recordId);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.scrollIntoView({ block: 'center' });
       el.classList.add('record-highlight');
       setTimeout(() => el.classList.remove('record-highlight'), 1600);
     }
@@ -336,19 +382,29 @@ function handleChartTouchMove(e: TouchEvent) {
   <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-safe">
     <NavBar title="体重打卡" :on-back="store.goBack" />
 
-    <div class="p-6 space-y-6">
-      <div class="flex flex-col items-center justify-center space-y-4 py-8 animate-pop-in">
-        <div class="w-20 h-20 rounded-full bg-[#1677FF]/10 flex items-center justify-center text-[#1677FF] animate-pulse">
-          <Scale class="h-10 w-10" />
-        </div>
-        <h2 class="text-xl font-bold text-gray-900">今日体重</h2>
-        <p class="text-sm text-gray-500 text-center">记录每日体重变化，生成专属趋势图表</p>
+    <!-- Tab 切换：打卡 / 趋势 / 记录（液态玻璃胶囊） -->
+    <div class="sticky top-14 z-20 px-4 pt-3 pb-1">
+      <div class="seg-tabs">
+        <button
+          v-for="tab in ([{ id: 'checkin', label: '打卡' }, { id: 'trend', label: '趋势' }, { id: 'records', label: '记录' }] as const)"
+          :key="tab.id"
+          @click="activeTab = tab.id"
+          :class="['seg-tab seg-tab-blue', activeTab === tab.id ? 'active' : '']"
+        >{{ tab.label }}</button>
+      </div>
+    </div>
+
+    <!-- ══════════ Tab 1: 打卡 ══════════ -->
+    <div v-show="activeTab === 'checkin'" class="p-4 space-y-4 pb-32">
+      <div class="text-center pt-2 pb-1">
+        <div class="text-sm text-gray-500">记录每日体重变化，见证慢病改善</div>
       </div>
 
-      <Card class="p-6 transition-transform hover:scale-[1.01]">
+      <Card class="p-4">
         <div class="flex items-center justify-center space-x-2 border-b border-gray-200 pb-4">
           <input
             type="number"
+            inputmode="decimal"
             step="0.1"
             :value="weight"
             @input="weight = ($event.target as HTMLInputElement).value; error = ''"
@@ -407,6 +463,7 @@ function handleChartTouchMove(e: TouchEvent) {
         <div v-if="editingTarget" class="flex items-center gap-2 mt-3">
           <input
             type="number"
+            inputmode="decimal"
             step="0.1"
             v-model="targetWeight"
             placeholder="例如 60.0"
@@ -424,17 +481,23 @@ function handleChartTouchMove(e: TouchEvent) {
           <div v-else class="text-xs text-gray-400">设置一个目标，趋势图会显示目标线，更有动力</div>
         </div>
       </Card>
+    </div>
 
-      <div class="pt-2">
-        <Button class="w-full bg-[#1677FF] hover:bg-[#1677FF]/90 text-white shadow-lg shadow-[#1677FF]/20 active:scale-95 transition-transform" size="lg" @click="handleSubmit">
-          完成打卡
-        </Button>
-      </div>
-
+    <!-- ══════════ Tab 2: 趋势 ══════════ -->
+    <div v-show="activeTab === 'trend'" class="p-4 space-y-4">
       <!-- Weight trend chart -->
-      <div v-if="sortedRecords.length >= 2" class="space-y-3 pt-2">
+      <div v-if="sortedRecords.length >= 2" class="space-y-3">
         <div class="flex items-center justify-between px-1">
-          <h3 class="text-sm font-bold text-gray-900">体重趋势</h3>
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-bold text-gray-900">体重趋势</h3>
+            <ChartRulePopup title="体重趋势图说明">
+              <p>记录每次体重打卡的体重值，按时间顺序连成折线。</p>
+              <p><span class="font-bold text-gray-900">交互：</span>点击/触摸折线图上的数据点可查看该次记录的详细信息。</p>
+              <p><span class="font-bold text-gray-900">目标体重线：</span>橙色虚线表示你设置的目标体重，方便对照进度。</p>
+              <p><span class="font-bold text-gray-900">批注标记：</span>数据点上的小圆点表示营养师有批注，红色=未读、蓝色=已读，点击可跳转到对应记录。</p>
+              <p><span class="font-bold text-gray-900">变化量：</span>最新体重 - 首次记录体重，绿色表示体重下降、橙色表示上升。</p>
+            </ChartRulePopup>
+          </div>
           <div v-if="weightStats" class="flex items-center gap-1.5">
             <span class="text-[11px] text-gray-400">{{ weightStats.first }} → {{ weightStats.last }}kg</span>
             <span :class="[
@@ -508,7 +571,7 @@ function handleChartTouchMove(e: TouchEvent) {
                     @mouseenter="hoveredIdx = i"
                     @mouseleave="hoveredIdx = null" />
 
-            <!-- 批注角标：点右上方小气泡（红=未读，蓝=已读），点击定位到该条记录 -->
+            <!-- 批注角标 -->
             <g v-for="(pt, i) in chartPoints.filter(p => p.hasComment)" :key="`cm-${i}`"
                class="cursor-pointer" @click.stop="scrollToRecord(pt.recordId)">
               <circle :cx="pt.x + 7" :cy="pt.y - 7" r="4.5"
@@ -523,9 +586,8 @@ function handleChartTouchMove(e: TouchEvent) {
                   :x="lb.x" :y="CH - 8" text-anchor="middle"
                   font-size="9" fill="#9ca3af">{{ lb.label }}</text>
 
-            <!-- Enhanced tooltip with date + weight -->
+            <!-- Tooltip -->
             <g v-if="activeIdx !== null && chartPoints[activeIdx]">
-              <!-- Tooltip card -->
               <rect :x="Math.max(PL, Math.min(CW - PR - 72, chartPoints[activeIdx].x - 36))"
                     :y="chartPoints[activeIdx].y - 38" width="72" height="28" rx="5"
                     fill="#1e293b" />
@@ -564,7 +626,6 @@ function handleChartTouchMove(e: TouchEvent) {
             </button>
           </div>
 
-          <!-- Hint text -->
           <p v-if="!selectedPoint" class="text-center text-[10px] text-gray-400 mt-2">点击曲线上的点查看详细数据</p>
 
           <!-- Stats -->
@@ -585,22 +646,31 @@ function handleChartTouchMove(e: TouchEvent) {
         </Card>
       </div>
 
-      <!-- Only 1 record -->
-      <div v-else-if="sortedRecords.length === 1" class="text-center py-6 bg-white rounded-2xl border border-gray-100">
+      <!-- 不足2条记录 -->
+      <div v-else class="text-center py-10 bg-white rounded-2xl border border-gray-100">
         <div class="w-14 h-14 mx-auto mb-2 rounded-full bg-[#1677FF]/10 flex items-center justify-center">
           <TrendingUp class="w-7 h-7 text-[#1677FF]" />
         </div>
-        <div class="text-sm font-bold text-gray-700">已记录 1 次体重</div>
-        <div class="text-xs text-gray-400 mt-0.5">再打卡 1 次即可生成你的专属趋势图</div>
+        <div class="text-sm font-bold text-gray-700">已记录 {{ sortedRecords.length }} 次体重</div>
+        <div class="text-xs text-gray-400 mt-0.5">再打卡 {{ 2 - sortedRecords.length }} 次即可生成你的专属趋势图</div>
       </div>
+    </div>
 
-      <!-- 打卡记录列表（按日期分组，含营养师批注） -->
-      <div v-if="sortedRecords.length > 0" class="space-y-3 pt-2">
-        <h3 class="text-sm font-bold text-gray-900 px-1">打卡记录</h3><div v-for="group in groupedHistory" :key="group.date" :id="`weight-group-${group.date}`">
+    <!-- ══════════ Tab 3: 记录 ══════════ -->
+    <div v-show="activeTab === 'records'" class="p-4 space-y-3">
+      <div v-if="sortedRecords.length === 0" class="text-center py-10 bg-white rounded-2xl border border-gray-100">
+        <div class="w-14 h-14 mx-auto mb-2 rounded-full bg-[#1677FF]/10 flex items-center justify-center">
+          <Scale class="w-7 h-7 text-[#1677FF]" />
+        </div>
+        <div class="text-sm font-bold text-gray-700">还没有体重记录</div>
+        <div class="text-xs text-gray-400 mt-0.5">回到「打卡」页记录第一次体重</div>
+      </div>
+      <template v-else>
+        <div v-for="group in groupedHistory" :key="group.date" :id="`weight-group-${group.date}`">
           <!-- Date header -->
           <button
             @click="handleToggleDate(group.date)"
-            class="w-full flex items-center justify-between bg-white rounded-xl px-4 py-2.5 mb-2 border border-gray-100 sticky top-0 z-10 shadow-sm"
+            class="w-full flex items-center justify-between bg-white rounded-xl px-4 py-2.5 mb-2 border border-gray-100 sticky top-[104px] z-10 shadow-sm"
           >
             <div class="flex items-center gap-2">
               <span class="w-1 h-4 rounded-full bg-[#1677FF]"></span>
@@ -677,7 +747,14 @@ function handleChartTouchMove(e: TouchEvent) {
             </Card>
           </div>
         </div>
-      </div>
+      </template>
+    </div>
+
+    <!-- 固定悬浮底部打卡按钮（仅打卡Tab显示） -->
+    <div v-show="activeTab === 'checkin'" class="fixed bottom-0 left-0 right-0 z-40 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-[#F7F8FA] via-[#F7F8FA]/95 to-transparent">
+      <Button class="w-full bg-[#1677FF] hover:bg-[#1677FF]/90 text-white shadow-lg shadow-[#1677FF]/30 active:scale-95 transition-transform" size="lg" @click="handleSubmit">
+        完成打卡
+      </Button>
     </div>
   </div>
 </template>

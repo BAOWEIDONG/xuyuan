@@ -5,7 +5,7 @@ import { NavBar, Card } from './ui';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
 import { Activity, Coffee, Scale, Gift, CheckCircle2, Lock, Package, Sparkles, Trophy, Check, PlayCircle } from 'lucide-vue-next';
 import { Popup as VanPopup } from 'vant';
-import { calculateStreak, getProjectedRewardDates } from '../lib/streak';
+import { calculateStreak, getProjectedRewardDates, isRangeComplete, isDayComplete } from '../lib/streak';
 import { formatDateTime } from '../lib/utils';
 import type { ExerciseRecord } from '../types';
 
@@ -21,6 +21,58 @@ const exercisePoints = (record: ExerciseRecord): number => {
 const store = useAppStore();
 const today = new Date();
 
+// ─── 营期切换（多期时显示） ──────────────────────────────
+const availableCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+const activeCampId = computed(() => {
+  if (store.selectedCampId && availableCamps.value.some(c => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  const active = availableCamps.value.find(c => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
+
+// 按营期过滤打卡记录
+const campDiet = computed(() => activeCampId.value ? store.getCampDietRecords(activeCampId.value) : store.dietRecords);
+const campEx = computed(() => activeCampId.value ? store.getCampExerciseRecords(activeCampId.value) : store.exerciseRecords);
+const campWt = computed(() => activeCampId.value ? store.getCampWeightRecords(activeCampId.value) : store.weightRecords);
+const campRewardTiers = computed(() => activeCampId.value ? store.getCampRewardTiers(activeCampId.value) : store.rewardTiers);
+// 日历仅展示连续打卡奖励（source='streak'），趣味活动奖品在 CampActivitiesView 管理
+const streakRewardTiers = computed(() => campRewardTiers.value.filter(t => t.source === 'streak'));
+const campRewardClaims = computed(() => activeCampId.value ? store.getCampRewardClaims(activeCampId.value) : store.rewardClaims);
+
+// ─── 营期日期标注 ──────────────────────────────────────────
+const myCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+
+interface CampMarker {
+  date: string;
+  campName: string;
+  type: 'start' | 'end';
+}
+
+const campMarkers = computed<CampMarker[]>(() => {
+  const markers: CampMarker[] = [];
+  for (const camp of myCamps.value) {
+    if (camp.startDate) markers.push({ date: camp.startDate, campName: camp.name, type: 'start' });
+    if (camp.endDate) markers.push({ date: camp.endDate, campName: camp.name, type: 'end' });
+  }
+  return markers;
+});
+
+const getCampMarker = (date: Date): CampMarker | null => {
+  const dStr = format(date, 'yyyy-MM-dd');
+  return campMarkers.value.find(m => m.date === dStr) || null;
+};
+
+/** 判断日期是否在某个营期范围内 */
+const isInCampPeriod = (date: Date): boolean => {
+  const dStr = format(date, 'yyyy-MM-dd');
+  return myCamps.value.some(c => {
+    const start = c.startDate || '';
+    const end = c.endDate || '';
+    return start && end && dStr >= start && dStr <= end;
+  });
+};
+
 const selectedDate = ref<Date>(today);
 const currentMonth = ref<Date>(startOfMonth(today));
 
@@ -32,11 +84,13 @@ const pad = computed(() => Array.from({ length: monthStart.value.getDay() }).fil
 const getStatus = (date: Date) => {
   const dStr = format(date, 'yyyy-MM-dd');
   const userId = store.user?.id;
-  const hasBreakfast = store.dietRecords.some((r) => r.date.startsWith(dStr) && r.meal === 'breakfast' && (r.studentId === userId || !r.studentId));
-  const hasLunch = store.dietRecords.some((r) => r.date.startsWith(dStr) && r.meal === 'lunch' && (r.studentId === userId || !r.studentId));
-  const hasDinner = store.dietRecords.some((r) => r.date.startsWith(dStr) && r.meal === 'dinner' && (r.studentId === userId || !r.studentId));
-  const hasExercise = store.exerciseRecords.some((r) => r.date.startsWith(dStr) && (r.studentId === userId || !r.studentId));
-  const hasWeight = store.weightRecords.some((r) => r.date.startsWith(dStr) && (r.studentId === userId || !r.studentId));
+  // 严格按学员匹配，与 isDayComplete 口径一致（不把无 studentId 的记录算给当前用户）
+  const mine = (r: { studentId?: string }) => !userId || r.studentId === userId;
+  const hasBreakfast = campDiet.value.some((r) => r.date.startsWith(dStr) && r.meal === 'breakfast' && mine(r));
+  const hasLunch = campDiet.value.some((r) => r.date.startsWith(dStr) && r.meal === 'lunch' && mine(r));
+  const hasDinner = campDiet.value.some((r) => r.date.startsWith(dStr) && r.meal === 'dinner' && mine(r));
+  const hasExercise = campEx.value.some((r) => r.date.startsWith(dStr) && mine(r));
+  const hasWeight = campWt.value.some((r) => r.date.startsWith(dStr) && mine(r));
   const completed = hasBreakfast && hasLunch && hasDinner && hasExercise && hasWeight;
   const completedCount = [hasBreakfast, hasLunch, hasDinner, hasExercise, hasWeight].filter(Boolean).length;
   return { hasBreakfast, hasLunch, hasDinner, hasExercise, hasWeight, completed, completedCount };
@@ -45,9 +99,9 @@ const getStatus = (date: Date) => {
 const selectedStatus = computed(() => getStatus(selectedDate.value));
 
 const selectedDateStr = computed(() => format(selectedDate.value, 'yyyy-MM-dd'));
-const dayExercises = computed(() => store.exerciseRecords.filter((r) => r.date.startsWith(selectedDateStr.value) && (r.studentId === store.user?.id || !r.studentId)));
-const dayDiets = computed(() => store.dietRecords.filter((r) => r.date.startsWith(selectedDateStr.value) && (r.studentId === store.user?.id || !r.studentId)));
-const dayWeights = computed(() => store.weightRecords.filter((r) => r.date.startsWith(selectedDateStr.value) && (r.studentId === store.user?.id || !r.studentId)));
+const dayExercises = computed(() => campEx.value.filter((r) => r.date.startsWith(selectedDateStr.value) && r.studentId === store.user?.id));
+const dayDiets = computed(() => campDiet.value.filter((r) => r.date.startsWith(selectedDateStr.value) && r.studentId === store.user?.id));
+const dayWeights = computed(() => campWt.value.filter((r) => r.date.startsWith(selectedDateStr.value) && r.studentId === store.user?.id));
 
 const prevMonth = () => {
   currentMonth.value = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth() - 1, 1);
@@ -66,11 +120,11 @@ const selectedRewardTier = ref<any>(null);
 const claimFormData = ref({ name: store.user?.name || '', phone: store.user?.phone || '', address: '' });
 const claimFormError = ref('');
 
-const streakData = computed(() => calculateStreak(store.exerciseRecords, store.dietRecords, store.weightRecords, store.user?.id));
-const myClaims = computed(() => store.rewardClaims.filter(c => c.studentId === store.user?.id));
+const streakData = computed(() => calculateStreak(campEx.value, campDiet.value, campWt.value, store.user?.id));
+const myClaims = computed(() => campRewardClaims.value.filter(c => c.studentId === store.user?.id));
 
 const rewardDates = computed(() => {
-  const projected = getProjectedRewardDates(streakData.value.currentStreak, streakData.value.streakStartDate, store.rewardTiers, store.rewardClaims, store.user?.id);
+  const projected = getProjectedRewardDates(streakData.value.currentStreak, streakData.value.streakStartDate, streakRewardTiers.value, campRewardClaims.value, store.user?.id);
   return projected.map(p => {
     if (!p.date) return null;
     const dateObj = new Date(p.date);
@@ -86,7 +140,21 @@ const getRewardOnDate = (date: Date) => {
 /** 奖励状态: claimed=已领取 / claimable=可领取 / outOfStock=已领完 / locked=未解锁 */
 const getRewardState = (reward: any): 'claimed' | 'claimable' | 'outOfStock' | 'locked' => {
   if (reward.isClaimed) return 'claimed';
-  if (reward.isUnlocked && reward.stock > 0) return 'claimable';
+  if (reward.isUnlocked && reward.stock > 0) {
+    // 二次校验：从首次打卡日到奖励日，每天都必须完成全部打卡（五项缺一不可）
+    if (streakData.value.streakStartDate && reward.date) {
+      const allComplete = isRangeComplete(
+        streakData.value.streakStartDate,
+        reward.date,
+        campEx.value,
+        campDiet.value,
+        campWt.value,
+        store.user?.id
+      );
+      if (!allComplete) return 'locked';
+    }
+    return 'claimable';
+  }
   if (reward.isUnlocked && reward.stock <= 0) return 'outOfStock';
   return 'locked';
 };
@@ -115,12 +183,24 @@ const openClaimForm = () => {
   claimFormData.value = { name: store.user?.name || '', phone: store.user?.phone || '', address: '' };
 };
 
+// 仅"当天"允许从完成度清单点击未完成项直达打卡页（历史日期不跳转）
+const isSelectedToday = computed(() => isSameDay(selectedDate.value, today));
+const goCheckin = (view: 'diet' | 'exercise' | 'weight-checkin') => {
+  if (!isSelectedToday.value) return;
+  store.setCurrentView(view);
+};
+
 const submitClaim = () => {
   if (!claimFormData.value.name.trim()) { claimFormError.value = '请输入收货人姓名'; return; }
   if (!/^1[3-9]\d{9}$/.test(claimFormData.value.phone.trim())) { claimFormError.value = '请输入有效的11位手机号'; return; }
   if (!claimFormData.value.address.trim()) { claimFormError.value = '请输入详细收货地址'; return; }
-  if (selectedRewardTier.value && selectedRewardTier.value.stock <= 0) { claimFormError.value = '该礼品库存不足'; return; }
   if (selectedRewardTier.value && store.user) {
+    // 二次校验：必须真的满足连续打卡天数（五项全部完成才算一天）才能领取
+    if (getRewardState(selectedRewardTier.value) !== 'claimable') {
+      claimFormError.value = '还未达成连续打卡要求，暂不能领取';
+      return;
+    }
+    if (selectedRewardTier.value.stock <= 0) { claimFormError.value = '该礼品库存不足'; return; }
     store.addRewardClaim({
       id: `claim_${Date.now()}`,
       tierId: selectedRewardTier.value.id,
@@ -129,8 +209,10 @@ const submitClaim = () => {
       recipientName: claimFormData.value.name.trim(),
       recipientPhone: claimFormData.value.phone.trim(),
       recipientAddress: claimFormData.value.address.trim(),
-      claimDate: new Date().toISOString(),
+      claimDate: (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; })(),
       status: 'pending',
+      deliveryMethod: 'shipped',
+      campId: activeCampId.value || undefined,
     });
     store.updateRewardTier(selectedRewardTier.value.id, { stock: Math.max(0, selectedRewardTier.value.stock - 1) });
     showRewardInfo.value = false;
@@ -176,7 +258,7 @@ onMounted(() => {
             v-for="(d, i) in days"
             :key="i"
             @click="selectedDate = d; getRewardOnDate(d) && handleRewardDateClick(d)"
-            :class="['h-12 flex flex-col items-center justify-start pt-1 rounded-lg cursor-pointer transition-all duration-200', isSameDay(d, selectedDate) ? 'bg-gray-100 ring-1 ring-gray-200 scale-105' : 'hover:bg-gray-50', getStatus(d).completed ? 'bg-green-50/50' : '']"
+            :class="['h-12 flex flex-col items-center justify-start pt-1 rounded-lg cursor-pointer transition-all duration-200', isSameDay(d, selectedDate) ? 'bg-gray-100 ring-1 ring-gray-200 scale-105' : 'hover:bg-gray-50', getStatus(d).completed ? 'bg-green-50/50' : '', isInCampPeriod(d) && !isSameDay(d, selectedDate) ? 'bg-blue-50/30' : '']"
           >
             <span :class="[
               'text-sm w-6 h-6 flex items-center justify-center rounded-full transition-all',
@@ -186,8 +268,11 @@ onMounted(() => {
               {{ format(d, 'd') }}
             </span>
             <div class="flex gap-0.5 mt-0.5 items-center justify-center">
+              <!-- 营期标注：开营/结营 -->
+              <span v-if="getCampMarker(d)?.type === 'start'" class="text-[8px] font-bold text-white bg-[#07C160] px-1 rounded leading-tight">开营</span>
+              <span v-else-if="getCampMarker(d)?.type === 'end'" class="text-[8px] font-bold text-white bg-[#FF976A] px-1 rounded leading-tight">结营</span>
               <!-- Partial: show 5 dots (done=colored, missing=gray) -->
-              <template v-if="!getStatus(d).completed && getStatus(d).completedCount > 0">
+              <template v-else-if="!getStatus(d).completed && getStatus(d).completedCount > 0">
                 <div :class="['w-1 h-1 rounded-full', getStatus(d).hasBreakfast ? 'bg-[#FF976A]' : 'bg-gray-200']" />
                 <div :class="['w-1 h-1 rounded-full', getStatus(d).hasLunch ? 'bg-[#FF976A]' : 'bg-gray-200']" />
                 <div :class="['w-1 h-1 rounded-full', getStatus(d).hasDinner ? 'bg-[#FF976A]' : 'bg-gray-200']" />
@@ -203,7 +288,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="flex items-center justify-center gap-4 mt-6 pt-4 border-t border-gray-100">
+        <div class="flex items-center justify-center gap-4 mt-6 pt-4 border-t border-gray-100 flex-wrap">
           <div class="flex items-center gap-1.5">
             <div class="w-4 h-4 rounded-full bg-[#07C160] flex items-center justify-center">
               <Check class="w-2.5 h-2.5 text-white" />
@@ -220,6 +305,11 @@ onMounted(() => {
           <div class="flex items-center gap-1.5">
             <Gift class="w-3.5 h-3.5 text-orange-400" />
             <span class="text-xs text-gray-500">奖励</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[8px] font-bold text-white bg-[#07C160] px-1 rounded">开营</span>
+            <span class="text-[8px] font-bold text-white bg-[#FF976A] px-1 rounded">结营</span>
+            <span class="text-xs text-gray-500">营期标注</span>
           </div>
         </div>
       </Card>
@@ -247,36 +337,41 @@ onMounted(() => {
         </div>
 
         <div class="grid grid-cols-2 gap-2 mb-3">
-          <div :class="['flex items-center gap-2 p-2 rounded-lg', selectedStatus.hasBreakfast ? 'bg-orange-50' : 'bg-gray-50']">
+          <button type="button" @click="goCheckin('diet')" :disabled="!isSelectedToday"
+                  :class="['flex items-center gap-2 p-2 rounded-lg text-left transition-all', selectedStatus.hasBreakfast ? 'bg-orange-50' : 'bg-gray-50', isSelectedToday && !selectedStatus.hasBreakfast ? 'ring-1 ring-[#FF976A]/40 cursor-pointer active:scale-[0.97]' : 'cursor-default']">
             <Coffee class="w-4 h-4 shrink-0" :class="selectedStatus.hasBreakfast ? 'text-[#FF976A]' : 'text-gray-300'" />
             <span class="text-xs font-medium" :class="selectedStatus.hasBreakfast ? 'text-gray-900' : 'text-gray-400'">早餐</span>
             <CheckCircle2 v-if="selectedStatus.hasBreakfast" class="w-3.5 h-3.5 text-[#07C160] ml-auto shrink-0" />
-            <span v-else class="text-[10px] text-gray-300 ml-auto">未打卡</span>
-          </div>
-          <div :class="['flex items-center gap-2 p-2 rounded-lg', selectedStatus.hasLunch ? 'bg-orange-50' : 'bg-gray-50']">
+            <span v-else class="text-[10px] ml-auto" :class="isSelectedToday ? 'text-[#FF976A] font-bold' : 'text-gray-300'">{{ isSelectedToday ? '去打卡 →' : '未打卡' }}</span>
+          </button>
+          <button type="button" @click="goCheckin('diet')" :disabled="!isSelectedToday"
+                  :class="['flex items-center gap-2 p-2 rounded-lg text-left transition-all', selectedStatus.hasLunch ? 'bg-orange-50' : 'bg-gray-50', isSelectedToday && !selectedStatus.hasLunch ? 'ring-1 ring-[#FF976A]/40 cursor-pointer active:scale-[0.97]' : 'cursor-default']">
             <Coffee class="w-4 h-4 shrink-0" :class="selectedStatus.hasLunch ? 'text-[#FF976A]' : 'text-gray-300'" />
             <span class="text-xs font-medium" :class="selectedStatus.hasLunch ? 'text-gray-900' : 'text-gray-400'">午餐</span>
             <CheckCircle2 v-if="selectedStatus.hasLunch" class="w-3.5 h-3.5 text-[#07C160] ml-auto shrink-0" />
-            <span v-else class="text-[10px] text-gray-300 ml-auto">未打卡</span>
-          </div>
-          <div :class="['flex items-center gap-2 p-2 rounded-lg', selectedStatus.hasDinner ? 'bg-orange-50' : 'bg-gray-50']">
+            <span v-else class="text-[10px] ml-auto" :class="isSelectedToday ? 'text-[#FF976A] font-bold' : 'text-gray-300'">{{ isSelectedToday ? '去打卡 →' : '未打卡' }}</span>
+          </button>
+          <button type="button" @click="goCheckin('diet')" :disabled="!isSelectedToday"
+                  :class="['flex items-center gap-2 p-2 rounded-lg text-left transition-all', selectedStatus.hasDinner ? 'bg-orange-50' : 'bg-gray-50', isSelectedToday && !selectedStatus.hasDinner ? 'ring-1 ring-[#FF976A]/40 cursor-pointer active:scale-[0.97]' : 'cursor-default']">
             <Coffee class="w-4 h-4 shrink-0" :class="selectedStatus.hasDinner ? 'text-[#FF976A]' : 'text-gray-300'" />
             <span class="text-xs font-medium" :class="selectedStatus.hasDinner ? 'text-gray-900' : 'text-gray-400'">晚餐</span>
             <CheckCircle2 v-if="selectedStatus.hasDinner" class="w-3.5 h-3.5 text-[#07C160] ml-auto shrink-0" />
-            <span v-else class="text-[10px] text-gray-300 ml-auto">未打卡</span>
-          </div>
-          <div :class="['flex items-center gap-2 p-2 rounded-lg', selectedStatus.hasExercise ? 'bg-green-50' : 'bg-gray-50']">
+            <span v-else class="text-[10px] ml-auto" :class="isSelectedToday ? 'text-[#FF976A] font-bold' : 'text-gray-300'">{{ isSelectedToday ? '去打卡 →' : '未打卡' }}</span>
+          </button>
+          <button type="button" @click="goCheckin('exercise')" :disabled="!isSelectedToday"
+                  :class="['flex items-center gap-2 p-2 rounded-lg text-left transition-all', selectedStatus.hasExercise ? 'bg-green-50' : 'bg-gray-50', isSelectedToday && !selectedStatus.hasExercise ? 'ring-1 ring-[#07C160]/40 cursor-pointer active:scale-[0.97]' : 'cursor-default']">
             <Activity class="w-4 h-4 shrink-0" :class="selectedStatus.hasExercise ? 'text-[#07C160]' : 'text-gray-300'" />
             <span class="text-xs font-medium" :class="selectedStatus.hasExercise ? 'text-gray-900' : 'text-gray-400'">运动</span>
             <CheckCircle2 v-if="selectedStatus.hasExercise" class="w-3.5 h-3.5 text-[#07C160] ml-auto shrink-0" />
-            <span v-else class="text-[10px] text-gray-300 ml-auto">未打卡</span>
-          </div>
-          <div :class="['flex items-center gap-2 p-2 rounded-lg', selectedStatus.hasWeight ? 'bg-blue-50' : 'bg-gray-50']">
+            <span v-else class="text-[10px] ml-auto" :class="isSelectedToday ? 'text-[#07C160] font-bold' : 'text-gray-300'">{{ isSelectedToday ? '去打卡 →' : '未打卡' }}</span>
+          </button>
+          <button type="button" @click="goCheckin('weight-checkin')" :disabled="!isSelectedToday"
+                  :class="['flex items-center gap-2 p-2 rounded-lg text-left transition-all', selectedStatus.hasWeight ? 'bg-blue-50' : 'bg-gray-50', isSelectedToday && !selectedStatus.hasWeight ? 'ring-1 ring-[#1677FF]/40 cursor-pointer active:scale-[0.97]' : 'cursor-default']">
             <Scale class="w-4 h-4 shrink-0" :class="selectedStatus.hasWeight ? 'text-[#1677FF]' : 'text-gray-300'" />
             <span class="text-xs font-medium" :class="selectedStatus.hasWeight ? 'text-gray-900' : 'text-gray-400'">体重</span>
             <CheckCircle2 v-if="selectedStatus.hasWeight" class="w-3.5 h-3.5 text-[#07C160] ml-auto shrink-0" />
-            <span v-else class="text-[10px] text-gray-300 ml-auto">未打卡</span>
-          </div>
+            <span v-else class="text-[10px] ml-auto" :class="isSelectedToday ? 'text-[#1677FF] font-bold' : 'text-gray-300'">{{ isSelectedToday ? '去打卡 →' : '未打卡' }}</span>
+          </button>
         </div>
 
         <!-- Status message + action buttons -->
@@ -373,7 +468,7 @@ onMounted(() => {
                 class="h-20 w-20 rounded-lg shrink-0 snap-center border border-gray-100 overflow-hidden relative bg-black cursor-pointer"
                 @click="store.openVideoPreview(url)"
               >
-                <video :src="url" class="w-full h-full object-cover" preload="metadata" />
+                <video :src="url" class="w-full h-full object-cover" preload="metadata" playsinline webkit-playsinline />
                 <div class="absolute inset-0 flex items-center justify-center bg-black/20">
                   <PlayCircle class="w-6 h-6 text-white drop-shadow" />
                 </div>

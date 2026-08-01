@@ -1,28 +1,36 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useAppStore } from '../store/app';
-import { NavBar, Card } from './ui';
-import { BarChart3, TrendingDown, TrendingUp, Users, Trophy, Activity, ChevronRight, Download, UserCheck, Building2 } from 'lucide-vue-next';
-import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem } from 'vant';
-import { MOCK_STUDENTS, MOCK_STUDENT_METRIC_VALUES } from '../mock/data';
+import { NavBar, Card, ChartRulePopup } from './ui';
+import { BarChart3, TrendingDown, Users, Trophy, Activity, ChevronRight, Download, UserCheck, Building2, FileText, Settings } from 'lucide-vue-next';
+import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem, Popup as VanPopup } from 'vant';
+import { MOCK_STUDENT_METRIC_VALUES } from '../mock/data';
 import { generateDietitianSummary } from '../lib/campReport';
 import { exportElementAsImage } from '../lib/exportImage';
 import type { DietitianCampSummary } from '../types';
 
 const store = useAppStore();
 
-// 所有体重记录（store 已包含全部学员数据）
-const allWeightRecords = computed(() => store.weightRecords);
+// ─── 营期切换 ───
+const selectedCampId = ref<string>(store.camps[0]?.id || '');
+const showCampPicker = ref(false);
+const selectedCamp = computed(() => store.camps.find((c) => c.id === selectedCampId.value));
 
-// 生成结营统计
+// 按营期过滤学员和记录
+const campStudents = computed(() => selectedCampId.value ? store.getStudentsByCamp(selectedCampId.value) : store.getAllStudents());
+const campDietRecords = computed(() => selectedCampId.value ? store.getCampDietRecords(selectedCampId.value) : store.dietRecords);
+const campExerciseRecords = computed(() => selectedCampId.value ? store.getCampExerciseRecords(selectedCampId.value) : store.exerciseRecords);
+const campWeightRecords = computed(() => selectedCampId.value ? store.getCampWeightRecords(selectedCampId.value) : store.weightRecords);
+
+// 生成结营统计（使用营期过滤后的数据）
 const summary = computed<DietitianCampSummary>(() =>
   generateDietitianSummary(
-    MOCK_STUDENTS,
+    campStudents.value,
     store.metricConfigs,
     MOCK_STUDENT_METRIC_VALUES,
-    store.dietRecords,
-    store.exerciseRecords,
-    allWeightRecords.value,
+    campDietRecords.value,
+    campExerciseRecords.value,
+    campWeightRecords.value,
   ),
 );
 
@@ -71,7 +79,7 @@ const fmtChange = (v: number | null, unit = ''): string => {
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-20 font-sans">
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-24 font-sans">
     <NavBar title="结营统计" :on-back="store.goBack">
       <template #right>
         <button class="text-[#FF976A] hover:bg-orange-50 p-2 rounded-full transition-colors" @click="exportPDF">
@@ -79,6 +87,17 @@ const fmtChange = (v: number | null, unit = ''): string => {
         </button>
       </template>
     </NavBar>
+
+    <!-- 营期切换 -->
+    <div class="bg-white px-4 py-3 flex items-center justify-between border-b border-gray-100">
+      <div>
+        <div class="text-xs text-gray-500">当前营期</div>
+        <div class="text-sm font-medium text-gray-800">{{ selectedCamp?.name || '未选择' }}</div>
+      </div>
+      <button class="text-xs text-[#FF976A] border border-[#FF976A] px-3 py-1.5 rounded-full font-bold active:bg-orange-50" @click="showCampPicker = true">
+        切换营期
+      </button>
+    </div>
 
     <div ref="exportRef" class="p-4 space-y-4">
       <!-- 企业汇报版入口 -->
@@ -119,14 +138,14 @@ const fmtChange = (v: number | null, unit = ''): string => {
             <TrendingDown class="w-5 h-5 text-[#07C160] mr-1" />
           </div>
           <div class="text-2xl font-bold text-[#07C160]">{{ fmtChange(summary.avgWeightChange, 'kg') }}</div>
-          <div class="text-xs text-gray-500 mt-1">平均体重变化<span class="text-[10px] text-gray-400">（按有效人数）</span></div>
+          <div class="text-xs text-gray-500 mt-1">平均体重变化<span class="text-[10px] text-gray-400">（按有体重记录）</span></div>
         </Card>
         <Card class="p-4 text-center">
           <div class="flex items-center justify-center mb-2">
             <Activity class="w-5 h-5 text-[#1677FF] mr-1" />
           </div>
           <div class="text-2xl font-bold text-[#1677FF]">{{ fmtPct(summary.avgCompletionRate) }}</div>
-          <div class="text-xs text-gray-500 mt-1">平均完成率<span class="text-[10px] text-gray-400">（按有效人数）</span></div>
+          <div class="text-xs text-gray-500 mt-1">平均完成率<span class="text-[10px] text-gray-400">（按全部学员）</span></div>
         </Card>
         <Card class="p-4 text-center">
           <div class="flex items-center justify-center mb-2">
@@ -140,7 +159,7 @@ const fmtChange = (v: number | null, unit = ''): string => {
             <BarChart3 class="w-5 h-5 text-[#1677FF] mr-1" />
           </div>
           <div class="text-2xl font-bold text-[#1677FF]">{{ fmt(summary.avgCheckinDays, 0) }}</div>
-          <div class="text-xs text-gray-500 mt-1">平均打卡天数<span class="text-[10px] text-gray-400">（按有效人数）</span></div>
+          <div class="text-xs text-gray-500 mt-1">平均打卡天数<span class="text-[10px] text-gray-400">（按全部学员）</span></div>
         </Card>
       </div>
 
@@ -195,10 +214,19 @@ const fmtChange = (v: number | null, unit = ''): string => {
 
       <!-- 指标聚合统计 -->
       <Card v-for="[catName, metrics] in metricCategories" :key="catName">
-        <h3 class="font-bold text-gray-900 mb-3 flex items-center gap-2 border-b pb-2 text-sm">
-          <Activity class="h-4 w-4 text-[#1677FF]" />
-          {{ catName }}
-        </h3>
+        <div class="flex items-center justify-between mb-3 border-b pb-2">
+          <h3 class="font-bold text-gray-900 flex items-center gap-2 text-sm">
+            <Activity class="h-4 w-4 text-[#1677FF]" />
+            {{ catName }}
+          </h3>
+          <ChartRulePopup title="指标改善率计算规则">
+            <p><span class="font-bold text-gray-900">改善率 =</span> 改善人数 ÷ 有前后检测数据人数 × 100%</p>
+            <p><span class="font-bold text-gray-900">改善判断：</span>按指标方向判定——"越低越好"的指标（如体重、脂肪、胆固醇）值下降为改善；"越高越好"的指标（如肌肉量、基础代谢率、HDL）值上升为改善。</p>
+            <p><span class="font-bold text-gray-900">异常转正常：</span>检测值从异常范围恢复到正常范围，也计为改善。</p>
+            <p><span class="font-bold text-gray-900">未改善：</span>值不变、反方向变化、或仍为异常的均不计入改善人数。</p>
+            <p><span class="font-bold text-gray-900">前/后均值：</span>分别对所有有数值数据的学员取平均，变化=后均值-前均值。</p>
+          </ChartRulePopup>
+        </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
             <thead>
@@ -246,32 +274,74 @@ const fmtChange = (v: number | null, unit = ''): string => {
           <BarChart3 class="h-4 w-4 text-[#FF976A]" />
           打卡频率统计
         </h3>
-        <div class="space-y-2">
+        <div class="space-y-2.5">
           <div
             v-for="report in summary.studentReports"
             :key="report.studentId"
-            class="flex items-center gap-3"
+            class="flex items-center gap-2.5"
           >
-            <span class="text-xs text-gray-700 w-12 shrink-0">{{ report.studentName }}</span>
-            <div class="flex-1 bg-gray-100 rounded-full h-6 relative overflow-hidden">
+            <span class="text-xs text-gray-700 w-12 shrink-0 truncate">{{ report.studentName }}</span>
+            <div class="flex-1 bg-gray-100 rounded-full h-5 relative overflow-hidden">
               <div
                 class="absolute left-0 top-0 h-full rounded-full transition-all"
-                :class="report.checkinStats.completionRate >= 0.8 ? 'bg-[#07C160]' : report.checkinStats.completionRate >= 0.5 ? 'bg-[#FF976A]' : 'bg-gray-400'"
+                :class="report.checkinStats.completionRate >= 0.8 ? 'bg-[#07C160]' : report.checkinStats.completionRate >= 0.5 ? 'bg-[#FF976A]' : 'bg-gray-300'"
                 :style="{ width: `${Math.min(report.checkinStats.completionRate * 100, 100)}%` }"
               ></div>
-              <span class="absolute inset-0 flex items-center justify-center text-[10px] font-medium text-white">
-                {{ report.checkinStats.completeDays }}/{{ report.checkinStats.campDays }}天 ({{ fmtPct(report.checkinStats.completionRate) }})
-              </span>
             </div>
+            <span class="text-[10px] font-medium text-gray-600 w-20 text-right shrink-0">
+              {{ report.checkinStats.completeDays }}/{{ report.checkinStats.campDays }}天 {{ fmtPct(report.checkinStats.completionRate) }}
+            </span>
           </div>
         </div>
       </Card>
     </div>
 
-    <VanTabbar class="custom-tabbar tabbar-orange print:hidden" :model-value="0">
+    <!-- 营期选择弹窗 -->
+    <VanPopup v-model:show="showCampPicker" position="bottom" round>
+      <div class="p-4">
+        <h3 class="font-bold text-gray-900 text-base mb-3 text-center">选择营期</h3>
+        <div class="space-y-2">
+          <button
+            v-for="camp in store.camps"
+            :key="camp.id"
+            @click="selectedCampId = camp.id; showCampPicker = false"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              selectedCampId === camp.id
+                ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">{{ camp.name }}</span>
+            <span
+              v-if="camp.status === 'active'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600"
+            >进行中</span>
+            <span
+              v-else-if="camp.status === 'ended'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+            >已结束</span>
+            <span
+              v-else
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500"
+            >未开始</span>
+          </button>
+        </div>
+      </div>
+    </VanPopup>
+
+    <VanTabbar class="custom-tabbar tabbar-orange print:hidden" :model-value="2">
       <VanTabbarItem @click="store.setCurrentView('dietitian-dashboard')">
         <template #icon><Users class="h-6 w-6" /></template>
-        返回工作台
+        首页
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('dietitian-unannotated-list')">
+        <template #icon><FileText class="h-6 w-6" /></template>
+        批注
+      </VanTabbarItem>
+      <VanTabbarItem>
+        <template #icon><Settings class="h-6 w-6" /></template>
+        配置
       </VanTabbarItem>
     </VanTabbar>
   </div>
@@ -291,7 +361,7 @@ const fmtChange = (v: number | null, unit = ''): string => {
   .fixed { position: static !important; }
   .overflow-y-auto { overflow: visible !important; }
   .overflow-x-auto { overflow: visible !important; }
-  .pb-20 { padding-bottom: 1rem !important; }
+  .pb-24 { padding-bottom: 1rem !important; }
   .pt-12 { padding-top: 0 !important; }
 }
 </style>

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useAppStore } from '../store/app';
-import { MOCK_STUDENTS } from '../mock/data';
 import { NavBar, Card } from './ui';
-import { rankStudents } from '../lib/scoring';
+import { rankStudents, rankStudentsThisWeek, getCurrentWeekRange } from '../lib/scoring';
+import { calculateDietScore, calculateExerciseScore, calculateTotalScore, calculateManualScore } from '../lib/scoring';
 import { formatDateTime } from '../lib/utils';
-import { Activity, Utensils } from 'lucide-vue-next';
-import type { ExerciseRecord } from '../types';
+import { Activity, Utensils, Award } from 'lucide-vue-next';
+import type { ExerciseRecord, DietRecord, ManualScoreRecord } from '../types';
 
 const MEAL_TYPES = [
   { id: 'breakfast', label: '早餐' },
@@ -16,22 +16,97 @@ const MEAL_TYPES = [
 ];
 
 const store = useAppStore();
-const activeTab = ref<'diet' | 'exercise'>('diet');
+const activeTab = ref<'diet' | 'exercise' | 'manual'>('diet');
 
-const student = computed(() => MOCK_STUDENTS.find((s) => s.id === store.selectedStudentId));
-const rankedStudents = computed(() => rankStudents(MOCK_STUDENTS, store.dietRecords, store.exerciseRecords));
+// 进步榜模式下展示本周积分明细
+const isWeekMode = computed(() => store.rankMode === 'progress');
+
+// 按查看对象的营期过滤学员列表
+const campId = computed(() => {
+  const studentId = store.selectedStudentId;
+  if (!studentId) return null;
+  return store.getStudentCampId(studentId);
+});
+
+const campStudents = computed(() => {
+  if (!campId.value) return [];
+  return store.getStudentsByCamp(campId.value);
+});
+
+// 按营期过滤打卡记录
+const campDiet = computed(() => campId.value ? store.getCampDietRecords(campId.value) : store.dietRecords);
+const campEx = computed(() => campId.value ? store.getCampExerciseRecords(campId.value) : store.exerciseRecords);
+const campManual = computed(() => campId.value ? store.getCampManualScoreRecords(campId.value) : store.manualScoreRecords);
+
+const student = computed(() => campStudents.value.find((s) => s.id === store.selectedStudentId));
+
+// 进步榜模式：使用本周排名数据；总榜模式：使用总排名数据
+const rankedStudents = computed(() => {
+  if (campStudents.value.length === 0) return [];
+  return isWeekMode.value
+    ? rankStudentsThisWeek(campStudents.value, campDiet.value, campEx.value, campManual.value)
+    : rankStudents(campStudents.value, campDiet.value, campEx.value, campManual.value);
+});
 const scoreData = computed(() => rankedStudents.value.find((s) => s.studentId === store.selectedStudentId));
+
+// 进步榜模式下：计算本周增长量（与 RankingView 一致的算法）
+const progressGrowth = computed(() => {
+  if (!isWeekMode.value || !student.value) return null;
+  const { mondayStr, sundayStr } = getCurrentWeekRange();
+  const studentDiet = campDiet.value.filter((r) => r.studentId === student.value!.id);
+  const studentEx = campEx.value.filter((r) => r.studentId === student.value!.id);
+  const studentManual = campManual.value.filter((r) => r.studentId === student.value!.id);
+  const thisWeekDiet = studentDiet.filter((r) => r.date.substring(0, 10) >= mondayStr && r.date.substring(0, 10) <= sundayStr);
+  const thisWeekEx = studentEx.filter((r) => r.date.substring(0, 10) >= mondayStr && r.date.substring(0, 10) <= sundayStr);
+  const thisWeekManual = studentManual.filter((r) => r.date >= mondayStr && r.date <= sundayStr);
+  const thisWeek = calculateTotalScore(thisWeekDiet, thisWeekEx, thisWeekManual);
+  // 上周日期范围
+  const lastMonday = new Date(mondayStr);
+  lastMonday.setDate(lastMonday.getDate() - 7);
+  const lastSunday = new Date(sundayStr);
+  lastSunday.setDate(lastSunday.getDate() - 7);
+  const lastMondayStr = lastMonday.toISOString().substring(0, 10);
+  const lastSundayStr = lastSunday.toISOString().substring(0, 10);
+  const lastWeekDiet = studentDiet.filter((r) => r.date.substring(0, 10) >= lastMondayStr && r.date.substring(0, 10) <= lastSundayStr);
+  const lastWeekEx = studentEx.filter((r) => r.date.substring(0, 10) >= lastMondayStr && r.date.substring(0, 10) <= lastSundayStr);
+  const lastWeekManual = studentManual.filter((r) => r.date >= lastMondayStr && r.date <= lastSundayStr);
+  const lastWeek = calculateTotalScore(lastWeekDiet, lastWeekEx, lastWeekManual);
+  return { thisWeek, lastWeek, growth: thisWeek - lastWeek };
+});
 
 const noPermission = computed(() => store.user?.role === 'student' && store.user.id !== store.selectedStudentId);
 
-const studentDiet = computed(() =>
-  student.value ? store.dietRecords.filter((r) => r.studentId === student.value!.id).sort((a, b) => b.date.localeCompare(a.date)) : [],
-);
-const studentExercise = computed(() =>
-  student.value ? store.exerciseRecords.filter((r) => r.studentId === student.value!.id).sort((a, b) => b.date.localeCompare(a.date)) : [],
-);
+// 周榜模式下只显示本周记录
+const weekRange = computed(() => getCurrentWeekRange());
+
+const isThisWeek = (dateStr: string): boolean => {
+  const d = dateStr.substring(0, 10);
+  return d >= weekRange.value.mondayStr && d <= weekRange.value.sundayStr;
+};
+
+const studentDiet = computed(() => {
+  if (!student.value) return [];
+  let records = campDiet.value.filter((r) => r.studentId === student.value!.id);
+  if (isWeekMode.value) records = records.filter((r) => isThisWeek(r.date));
+  return records.sort((a, b) => b.date.localeCompare(a.date));
+});
+
+const studentExercise = computed(() => {
+  if (!student.value) return [];
+  let records = campEx.value.filter((r) => r.studentId === student.value!.id);
+  if (isWeekMode.value) records = records.filter((r) => isThisWeek(r.date));
+  return records.sort((a, b) => b.date.localeCompare(a.date));
+});
 
 const mealLabel = (meal: string) => MEAL_TYPES.find((m) => m.id === meal)?.label;
+
+/** 手动加减分记录 */
+const studentManualScores = computed<ManualScoreRecord[]>(() => {
+  if (!student.value) return [];
+  let records = campManual.value.filter((r) => r.studentId === student.value!.id);
+  if (isWeekMode.value) records = records.filter((r) => isThisWeek(r.date));
+  return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+});
 
 /** 计算单条运动记录的积分（与 scoring.ts calculateExerciseScore 一致） */
 const exercisePoints = (record: ExerciseRecord): number => {
@@ -59,17 +134,25 @@ const exercisePoints = (record: ExerciseRecord): number => {
   </div>
 
   <div v-else class="flex min-h-full flex-col bg-[#F7F8FA] pb-safe">
-    <NavBar :title="`${student.name} 的积分明细`" :on-back="store.goBack" />
+    <NavBar :title="`${student.name} 的${isWeekMode ? '本周' : ''}积分明细`" :on-back="store.goBack" />
 
     <div class="bg-white p-6 border-b border-gray-100 flex justify-between items-center">
       <div>
-        <div class="text-3xl font-bold text-[#FF976A]">{{ scoreData.totalScore }}</div>
-        <div class="text-xs text-gray-500 mt-1">总积分</div>
+        <div v-if="isWeekMode && progressGrowth" class="text-3xl font-bold text-[#FF976A]">{{ progressGrowth.growth >= 0 ? '+' : '' }}{{ progressGrowth.growth }}</div>
+        <div v-else class="text-3xl font-bold text-[#FF976A]">{{ scoreData.totalScore }}</div>
+        <div class="text-xs text-gray-500 mt-1">{{ isWeekMode ? '本周增长' : '总积分' }}</div>
+        <div v-if="isWeekMode && progressGrowth" class="text-[10px] text-gray-400 mt-0.5">本周 {{ progressGrowth.thisWeek }} 分 · 上周 {{ progressGrowth.lastWeek }} 分</div>
       </div>
       <div class="text-right">
         <div class="text-2xl font-bold text-gray-900">第 {{ scoreData.rank }} 位</div>
-        <div class="text-xs text-gray-500 mt-1">总排名</div>
+        <div class="text-xs text-gray-500 mt-1">{{ isWeekMode ? '本周排名' : '总排名' }}</div>
       </div>
+    </div>
+
+    <!-- 进步榜模式提示 -->
+    <div v-if="isWeekMode" class="bg-[#07C160]/5 px-4 py-2 text-xs text-[#07C160] flex items-center gap-1.5 border-b border-green-100">
+      <span class="inline-block w-1 h-1 rounded-full bg-[#07C160]"></span>
+      <span>本周（{{ weekRange.mondayStr }} ~ {{ weekRange.sundayStr }}）打卡记录及积分</span>
     </div>
 
     <div class="flex gap-4 px-4 bg-white border-b border-gray-200 sticky top-14 z-10">
@@ -85,11 +168,19 @@ const exercisePoints = (record: ExerciseRecord): number => {
       >
         运动积分 ({{ scoreData.exerciseScore }})
       </button>
+      <button
+        :class="['py-3 text-sm font-bold border-b-2 transition-colors flex-1', activeTab === 'manual' ? 'border-[#0958d9] text-[#0958d9]' : 'border-transparent text-gray-500 hover:text-gray-900']"
+        @click="activeTab = 'manual'"
+      >
+        手动调整 ({{ (scoreData as any).manualScore ?? 0 }})
+      </button>
     </div>
 
     <div class="p-4 space-y-3">
       <template v-if="activeTab === 'diet'">
-        <div v-if="studentDiet.length === 0" class="text-center py-10 text-gray-400 text-sm">暂无饮食记录</div>
+        <div v-if="studentDiet.length === 0" class="text-center py-10 text-gray-400 text-sm">
+          {{ isWeekMode ? '本周暂无饮食记录' : '暂无饮食记录' }}
+        </div>
         <Card v-for="record in studentDiet" v-else :key="record.id" class="p-4">
           <div class="flex justify-between items-start mb-2">
             <div class="flex items-center gap-2">
@@ -114,7 +205,9 @@ const exercisePoints = (record: ExerciseRecord): number => {
       </template>
 
       <template v-if="activeTab === 'exercise'">
-        <div v-if="studentExercise.length === 0" class="text-center py-10 text-gray-400 text-sm">暂无运动记录</div>
+        <div v-if="studentExercise.length === 0" class="text-center py-10 text-gray-400 text-sm">
+          {{ isWeekMode ? '本周暂无运动记录' : '暂无运动记录' }}
+        </div>
         <Card v-for="record in studentExercise" v-else :key="record.id" class="p-4">
           <div class="flex justify-between items-start mb-2">
             <div class="flex items-center gap-2">
@@ -131,12 +224,31 @@ const exercisePoints = (record: ExerciseRecord): number => {
           <div class="text-sm text-gray-700">时长: {{ record.duration }} 分钟</div>
           <div v-if="record.duration < 40" class="text-[10px] text-gray-500 mt-1 bg-gray-50 p-1 rounded inline-block">未达40分钟，不计基础分</div>
           <div v-if="record.dietitianScore != null" class="text-[10px] text-[#07C160] mt-1 bg-[#07C160]/5 p-1 rounded inline-block ml-1">
-            营养师评分: +{{ record.dietitianScore === 2 ? '1' : record.dietitianScore === 1 ? '0.5' : '0' }} 加成
+            营养师评分: +{{ record.dietitianScore }} 加成
           </div>
           <div v-if="record.dietitianComment" class="mt-3 bg-gray-50 p-2 rounded text-xs text-gray-600">
             <span class="font-bold text-[#07C160] mr-1">批注:</span>
             {{ record.dietitianComment }}
           </div>
+        </Card>
+      </template>
+
+      <template v-if="activeTab === 'manual'">
+        <div v-if="studentManualScores.length === 0" class="text-center py-10 text-gray-400 text-sm">
+          {{ isWeekMode ? '本周暂无手动调整记录' : '暂无手动调整记录' }}
+        </div>
+        <Card v-for="record in studentManualScores" v-else :key="record.id" class="p-4">
+          <div class="flex justify-between items-start mb-2">
+            <div class="flex items-center gap-2">
+              <Award class="w-4 h-4 text-[#0958d9]" />
+              <span class="text-sm font-bold text-gray-900">{{ formatDateTime(record.createdAt) }}</span>
+            </div>
+            <div :class="['font-bold', record.points >= 0 ? 'text-[#07C160]' : 'text-red-500']">
+              {{ record.points >= 0 ? '+' : '' }}{{ record.points }}
+            </div>
+          </div>
+          <div class="text-sm text-gray-700">{{ record.reason }}</div>
+          <div class="text-xs text-gray-400 mt-1">操作人：{{ record.dietitianName }}</div>
         </Card>
       </template>
     </div>

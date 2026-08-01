@@ -21,7 +21,6 @@ import CampStatsView from './components/CampStatsView.vue';
 import RankingView from './components/RankingView.vue';
 import PointsDetailView from './components/PointsDetailView.vue';
 import RewardView from './components/RewardView.vue';
-import RewardManageView from './components/RewardManageView.vue';
 import RewardConfigView from './components/RewardConfigView.vue';
 import MealTimeConfigView from './components/MealTimeConfigView.vue';
 import MetricConfigView from './components/MetricConfigView.vue';
@@ -32,7 +31,13 @@ import CampActivitiesView from './components/CampActivitiesView.vue';
 import ActivityAdminView from './components/ActivityAdminView.vue';
 import PersonalJourneyView from './components/PersonalJourneyView.vue';
 import MessagesView from './components/MessagesView.vue';
+import AccountManageView from './components/AccountManageView.vue';
+import DietitianConfigView from './components/DietitianConfigView.vue';
 import VideoPreview from './components/VideoPreview.vue';
+import ActivityHubView from './components/ActivityHubView.vue';
+import PointsMallView from './components/PointsMallView.vue';
+import FulfillmentCenterView from './components/FulfillmentCenterView.vue';
+import MyRewardsView from './components/MyRewardsView.vue';
 
 const store = useAppStore();
 
@@ -57,7 +62,6 @@ const viewMap: Record<string, Component> = {
   ranking: RankingView,
   pointsDetail: PointsDetailView,
   reward: RewardView,
-  'reward-manage': RewardManageView,
   'reward-config': RewardConfigView,
   'meal-time-config': MealTimeConfigView,
   'metric-config': MetricConfigView,
@@ -68,6 +72,12 @@ const viewMap: Record<string, Component> = {
   'activity-admin': ActivityAdminView,
   'personal-journey': PersonalJourneyView,
   messages: MessagesView,
+  'account-manage': AccountManageView,
+  'dietitian-config': DietitianConfigView,
+  'activity-hub': ActivityHubView,
+  'points-mall': PointsMallView,
+  'fulfillment-center': FulfillmentCenterView,
+  'my-rewards': MyRewardsView,
 };
 
 const currentComponent = computed<Component>(() => viewMap[store.currentView] || LoginView);
@@ -81,6 +91,13 @@ watch(() => store.currentView, () => {
 });
 
 onMounted(() => {
+  // 启用 iOS 液态玻璃悬浮 Tabbar（打印时移除，回到普通 Tabbar 并遵循 print:hidden）
+  document.body.classList.add('liquid-glass');
+  const handleBeforePrint = () => document.body.classList.remove('liquid-glass');
+  const handleAfterPrint = () => document.body.classList.add('liquid-glass');
+  window.addEventListener('beforeprint', handleBeforePrint);
+  window.addEventListener('afterprint', handleAfterPrint);
+
   // 先尝试恢复登录态（保活），再加载数据
   store.restoreAuth();
   store.init();
@@ -88,26 +105,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="fixed inset-0 max-w-md mx-auto overflow-hidden bg-[#F7F8FA] font-sans text-gray-700 sm:shadow-2xl sm:border-x sm:border-gray-100">
+  <div class="fixed inset-0 max-w-md mx-auto overflow-hidden font-sans text-gray-700 sm:shadow-2xl sm:border-x sm:border-gray-100">
     <div ref="scrollContainer" class="absolute inset-0 overflow-y-auto overflow-x-hidden overscroll-contain" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
-      <transition name="view-fade" mode="out-in">
+      <div class="relative">
         <component :is="currentComponent" :key="store.currentView" />
-      </transition>
+      </div>
     </div>
     <VideoPreview />
   </div>
 </template>
 
 <style>
-.view-fade-enter-active, .view-fade-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-.view-fade-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-.view-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
 </style>

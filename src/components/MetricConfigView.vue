@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import { useAppStore } from '../store/app';
 import { NavBar, Card } from './ui';
-import { Popup as VanPopup, showToast } from 'vant';
+import { Popup as VanPopup, showToast, showConfirmDialog } from 'vant';
 import { Plus, Trash2, Edit3, Stethoscope, AlertTriangle, ChevronDown } from 'lucide-vue-next';
 import type { MetricConfig } from '../types';
 
@@ -46,10 +46,10 @@ const handleEdit = (metric?: MetricConfig) => {
 };
 
 const handleDelete = (id: string, name: string) => {
-  if (confirm(`确定删除指标「${name}」？`)) {
+  showConfirmDialog({ title: '提示', message: `确定删除指标「${name}」？` }).then(() => {
     store.deleteMetricConfig(id);
     showToast('已删除');
-  }
+  });
 };
 
 const saveMetric = () => {

@@ -3,14 +3,16 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { format } from 'date-fns';
 import { useAppStore } from '../store/app';
 import { MOCK_STUDENTS, MOCK_METRIC_VALUES, MOCK_STUDENT_METRIC_VALUES } from '../mock/data';
-import { NavBar, Card, Button, Input } from './ui';
+import { NavBar, Card, Button, ChartRulePopup } from './ui';
 import WeightTrendChart from './ui/WeightTrendChart.vue';
-import { UserCircle, Coffee, MessageCircle, Stethoscope, ClipboardList, AlertCircle, FileText, Activity, Scale, TrendingUp, PlayCircle, ChevronDown, ChevronUp, ThumbsUp, CheckCircle2, Salad, Eye } from 'lucide-vue-next';
+import { UserCircle, Coffee, MessageCircle, Stethoscope, ClipboardList, AlertCircle, FileText, Activity, Scale, TrendingUp, PlayCircle, ChevronDown, ChevronUp, ThumbsUp, CheckCircle2, Salad, Eye, Plus, Minus, Trash2, Award } from 'lucide-vue-next';
+import { Popup as VanPopup } from 'vant';
 import { buildMedicalData, isValueOutOfRange, type MedicalCategory, type Indicator } from '../lib/medicalData';
 import { formatDateTime } from '../lib/utils';
 import { useDateGrouping } from '../composables/useDateGrouping';
 import { computeDietScoreTrends, computeExerciseTrends } from '../lib/journey';
-import type { DietRecord, WeightRecord, ExerciseRecord } from '../types';
+import { calculateDietScore, calculateExerciseScore, calculateManualScore } from '../lib/scoring';
+import type { DietRecord, WeightRecord, ExerciseRecord, ManualScoreRecord } from '../types';
 
 const MEAL_TYPES = [
   { id: 'breakfast', label: '早餐' },
@@ -21,6 +23,44 @@ const MEAL_TYPES = [
 
 const store = useAppStore();
 const student = computed(() => MOCK_STUDENTS.find((s) => s.id === store.selectedStudentId));
+
+// ─── 营期切换（学员可能在多个营期中） ───
+const studentCamps = computed(() => store.selectedStudentId ? store.getStudentCamps(store.selectedStudentId) : []);
+const selectedCampId = ref<string>('');
+const showCampPicker = ref(false);
+const selectedCamp = computed(() => studentCamps.value.find((c) => c.id === selectedCampId.value) || null);
+
+// 当学员切换时，自动选择其当前营期（优先使用 store.selectedCampId，确保与上游一致）
+watch(() => store.selectedStudentId, (id) => {
+  if (id) {
+    // 如果 store 已有选中的营期且该学员在该营期，直接用
+    if (store.selectedCampId && studentCamps.value.some((c) => c.id === store.selectedCampId)) {
+      selectedCampId.value = store.selectedCampId;
+    } else {
+      const campId = store.getStudentCampId(id);
+      if (campId) selectedCampId.value = campId;
+    }
+  }
+}, { immediate: true });
+
+// 本地营期切换时同步到 store，确保下游（PointsDetailView 等）继承正确营期
+watch(selectedCampId, (newId) => {
+  if (newId) store.selectedCampId = newId;
+});
+
+// 按营期+学员过滤打卡记录
+const campDietRecords = computed(() => {
+  if (!selectedCampId.value) return store.dietRecords;
+  return store.getCampDietRecords(selectedCampId.value);
+});
+const campExerciseRecords = computed(() => {
+  if (!selectedCampId.value) return store.exerciseRecords;
+  return store.getCampExerciseRecords(selectedCampId.value);
+});
+const campWeightRecords = computed(() => {
+  if (!selectedCampId.value) return store.weightRecords;
+  return store.getCampWeightRecords(selectedCampId.value);
+});
 
 // 快捷回复模板
 const DIET_TEMPLATES = [
@@ -58,20 +98,25 @@ const campMessageText = ref('');
 const campMessageSaved = ref(false);
 const showCampMessage = ref(false);
 const loadCampMessage = () => {
-  campMessageText.value = (store.selectedStudentId && store.campMessages[store.selectedStudentId]) || '';
+  const studentId = store.selectedStudentId;
+  if (!studentId) { campMessageText.value = ''; return; }
+  // 寄语按营期存储，key = `${campId}_${studentId}`；通过 getCampMessage 读取
+  campMessageText.value = selectedCampId.value ? store.getCampMessage(selectedCampId.value, studentId) : '';
 };
 const saveCampMessage = () => {
-  if (!store.selectedStudentId) return;
-  store.setCampMessage(store.selectedStudentId, campMessageText.value);
+  const studentId = store.selectedStudentId;
+  if (!studentId) return;
+  if (!selectedCampId.value) return;
+  store.setCampMessage(selectedCampId.value, studentId, campMessageText.value);
   campMessageSaved.value = true;
   setTimeout(() => (campMessageSaved.value = false), 2000);
 };
 
-const activeTab = ref<'diet' | 'exercise' | 'weight' | 'medical' | 'questionnaire'>('diet');
+const activeTab = ref<'diet' | 'exercise' | 'weight' | 'medical' | 'questionnaire' | 'score'>('diet');
 
-// Diet tab
+// Diet tab - filtered by studentId AND campId
 const records = computed(() =>
-  store.dietRecords.filter((r) => r.studentId === store.selectedStudentId).sort((a, b) => b.date.localeCompare(a.date)),
+  campDietRecords.value.filter((r) => r.studentId === store.selectedStudentId).sort((a, b) => b.date.localeCompare(a.date)),
 );
 const commentingId = ref<string | null>(null);
 const commentText = ref('');
@@ -80,13 +125,13 @@ const commentStaple = ref(false);
 const commentProtein = ref(false);
 const commentVegetable = ref(false);
 
-// Exercise tab
+// Exercise tab - filtered by studentId AND campId
 const studentExercises = computed(() =>
-  store.exerciseRecords.filter((r) => r.studentId === store.selectedStudentId).sort((a, b) => b.date.localeCompare(a.date)),
+  campExerciseRecords.value.filter((r) => r.studentId === store.selectedStudentId).sort((a, b) => b.date.localeCompare(a.date)),
 );
 
-// 趋势图计算（与学员端 DietView/ExerciseView 完全对称，内容一致）
-const dietTrends = computed(() => computeDietScoreTrends(records.value, store.exerciseRecords, store.weightRecords, store.selectedStudentId || undefined));
+// 趋势图计算（与学员端 DietView/ExerciseView 完全对称，内容一致；使用营期过滤后的记录）
+const dietTrends = computed(() => computeDietScoreTrends(records.value, campExerciseRecords.value, campWeightRecords.value, store.selectedStudentId || undefined));
 const dietTrendMax = computed(() => Math.max(...dietTrends.value.map((t) => t.score), 100));
 const dietTrendColor = (score: number) => (score >= 80 ? '#07C160' : score >= 60 ? '#FF976A' : '#ef4444');
 const dietTrendDirection = computed(() => {
@@ -135,17 +180,16 @@ const handleSaveExerciseComment = (recordId: string) => {
     dietitianScore: exerciseScore.value,
     dietitianName: store.user?.name || '营养师',
     dietitianCommentDate: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
+    commentRead: false,
   });
   cancelExerciseComment();
 };
 
-// Weight tab - data sourced from store.weightRecords (synced with student side via API)
-// 学员端打卡 -> store.addWeightRecord -> api.createWeightRecord -> 后端
-// 营养师端 -> store.init() -> api.getWeightRecords -> 同步全部学员数据
+// Weight tab - data sourced from camp-filtered weight records
 const studentWeights = computed(() => {
   const id = store.selectedStudentId;
   if (!id) return [];
-  return store.weightRecords
+  return campWeightRecords.value
     .filter((r) => r.studentId === id)
     .sort((a, b) => a.date.localeCompare(b.date));
 });
@@ -178,6 +222,7 @@ const handleSaveWeightComment = (recordId: string) => {
     dietitianComment: weightCommentText.value,
     dietitianName: store.user?.name || '营养师',
     dietitianCommentDate: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
+    commentRead: false,
   });
   cancelWeightComment();
 };
@@ -210,6 +255,11 @@ watch(() => student.value?.id, () => {
   loadCampMessage();
 }, { immediate: true });
 
+// 切换营期时重新加载寄语
+watch(selectedCampId, () => {
+  loadCampMessage();
+});
+
 // Questionnaire tab
 const qData = ref<any>(null);
 
@@ -240,7 +290,7 @@ onMounted(() => {
         if (recordId) {
           const el = document.getElementById(`record-${recordId}`);
           if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.scrollIntoView({ block: 'center' });
             // 高亮闪烁
             el.classList.add('ring-2', 'ring-[#FF976A]');
             setTimeout(() => el.classList.remove('ring-2', 'ring-[#FF976A]'), 2000);
@@ -277,6 +327,7 @@ const handleSaveComment = (recordId: string) => {
     dietitianScore: commentScore.value,
     dietitianName: store.user?.name || '营养师',
     dietitianCommentDate: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
+    commentRead: false,
     hasStaple: commentStaple.value,
     hasProtein: commentProtein.value,
     hasVegetable: commentVegetable.value,
@@ -307,6 +358,62 @@ const openReport = (r: any) => {
   if (r.type === 'pdf') window.open(r.url, '_blank');
   else store.openImagePreview([r.url], 0);
 };
+
+// ─── 手动加减分 ──────────────────────────────────────────
+const manualPoints = ref<number>(0);
+const manualReason = ref('');
+const manualMode = ref<'add' | 'subtract'>('add');
+
+/** 当前学员的手动加减分记录（按营期过滤，与排行榜一致；按时间倒序） */
+const studentManualScores = computed<ManualScoreRecord[]>(() => {
+  if (!student.value) return [];
+  return store.manualScoreRecords
+    .filter((r) => {
+      if (r.studentId !== student.value!.id) return false;
+      // 与排行榜保持一致：按营期过滤（无 campId 的记录也纳入，兼容历史数据）
+      if (selectedCampId.value && r.campId && r.campId !== selectedCampId.value) return false;
+      return true;
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+});
+
+/** 手动加减分合计 */
+const manualScoreTotal = computed(() => calculateManualScore(studentManualScores.value));
+
+/** 积分明细 */
+const scoreBreakdown = computed(() => {
+  if (!student.value) return { diet: 0, exercise: 0, manual: 0, total: 0 };
+  const diet = calculateDietScore(campDietRecords.value.filter((r) => r.studentId === student.value!.id));
+  const exercise = calculateExerciseScore(campExerciseRecords.value.filter((r) => r.studentId === student.value!.id));
+  const manual = manualScoreTotal.value;
+  return { diet, exercise, manual, total: diet + exercise + manual };
+});
+
+function handleAddManualScore() {
+  if (!student.value || !manualReason.value.trim()) return;
+  const points = manualMode.value === 'add' ? Math.abs(manualPoints.value) : -Math.abs(manualPoints.value);
+  if (points === 0) return;
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const dateTimeStr = `${dateStr} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  store.addManualScoreRecord({
+    id: `ms_${Date.now()}`,
+    studentId: student.value.id,
+    points,
+    reason: manualReason.value.trim(),
+    dietitianName: store.user?.name || '营养师',
+    createdAt: dateTimeStr,
+    date: dateStr,
+    campId: selectedCampId.value || undefined,
+  });
+  manualPoints.value = 0;
+  manualReason.value = '';
+  manualMode.value = 'add';
+}
+
+function handleDeleteManualScore(id: string) {
+  store.deleteManualScoreRecord(id);
+}
 </script>
 
 <template>
@@ -317,7 +424,7 @@ const openReport = (r: any) => {
     </div>
   </div>
 
-  <div v-else class="flex min-h-screen flex-col bg-[#F7F8FA] pb-safe relative font-sans">
+  <div v-else class="flex min-h-full flex-col bg-[#F7F8FA] pb-safe relative font-sans">
     <NavBar :title="`${student.name} 的档案`" :on-back="store.goBack" />
 
     <div class="bg-white px-4 pt-4 border-b border-gray-200 space-y-4">
@@ -342,6 +449,17 @@ const openReport = (r: any) => {
           积分与排名
         </Button>
       </Card>
+
+      <!-- 营期切换（学员在多个营期时显示） -->
+      <div v-if="studentCamps.length > 1" class="bg-white px-4 py-2.5 flex items-center justify-between rounded-xl border border-gray-100">
+        <div>
+          <span class="text-xs text-gray-500">当前营期：</span>
+          <span class="text-sm font-medium text-gray-800">{{ selectedCamp?.name || '未选择' }}</span>
+        </div>
+        <button class="text-xs text-[#FF976A] border border-[#FF976A] px-2.5 py-1 rounded-full font-bold active:bg-orange-50" @click="showCampPicker = true">
+          切换
+        </button>
+      </div>
 
       <!-- 结营寄语（可折叠，默认收起；点击标题展开编辑区） -->
       <Card class="p-0 overflow-hidden border-[#07C160]/20 bg-[#07C160]/[0.03]">
@@ -418,6 +536,12 @@ const openReport = (r: any) => {
         >
           自查问卷
         </button>
+        <button
+          :class="['py-3 text-sm font-bold border-b-2 transition-colors shrink-0', activeTab === 'score' ? 'border-[#07C160] text-[#07C160]' : 'border-transparent text-gray-500 hover:text-gray-900']"
+          @click="activeTab = 'score'"
+        >
+          积分管理
+        </button>
       </div>
     </div>
 
@@ -431,9 +555,19 @@ const openReport = (r: any) => {
               <Salad class="h-4 w-4 text-[#FF976A]" />
               饮食健康指数
             </h3>
-            <span v-if="dietTrendDirection" class="text-[10px] font-bold" :class="dietTrendDirection === 'up' ? 'text-[#07C160]' : dietTrendDirection === 'down' ? 'text-red-500' : 'text-gray-400'">
-              {{ dietTrendDirection === 'up' ? '↑ 在变好' : dietTrendDirection === 'down' ? '↓ 有波动' : '-> 平稳' }}
-            </span>
+            <div class="flex items-center gap-2">
+              <ChartRulePopup title="饮食健康指数计算规则" button-text="计算规则">
+                <p><span class="font-bold text-gray-900">综合指数 =</span> 三餐规律(30%) + 结构均衡(40%) + 营养师评分(30%)，满分100分</p>
+                <p><span class="font-bold text-gray-900">三餐规律：</span>三餐齐全(早+午+晚)的天数 ÷ 有打卡的天数。缺打卡天数不影响分母。</p>
+                <p><span class="font-bold text-gray-900">结构均衡：</span>营养师已评定结构的记录中，包含至少2类食物(主食/蛋白质/蔬菜)的比例。减脂餐不吃主食，蛋白+蔬菜也算均衡。</p>
+                <p><span class="font-bold text-gray-900">营养师评分：</span>该周有评分记录的平均分(0~2分)，映射到0~1后计入。无评分记录时该维度权重按比例分配给其他维度。</p>
+                <p><span class="font-bold text-gray-900">动态权重：</span>缺失维度的权重按比例分配给已有数据维度，避免"无评分=不及格"。</p>
+                <p><span class="font-bold text-gray-900">颜色标识：</span>≥80分绿色(优秀)、60-79分橙色(良好)、&lt;60分红色(需改善)。</p>
+              </ChartRulePopup>
+              <span v-if="dietTrendDirection" class="text-[10px] font-bold" :class="dietTrendDirection === 'up' ? 'text-[#07C160]' : dietTrendDirection === 'down' ? 'text-red-500' : 'text-gray-400'">
+                {{ dietTrendDirection === 'up' ? '↑ 在变好' : dietTrendDirection === 'down' ? '↓ 有波动' : '-> 平稳' }}
+              </span>
+            </div>
           </div>
           <p class="text-[10px] text-gray-400">综合三餐规律(30%)、结构均衡(40%)、营养师评分(30%)，按可用数据动态加权，满分100分</p>
           <div class="flex items-end justify-between gap-1.5 h-24">
@@ -585,7 +719,7 @@ const openReport = (r: any) => {
                 />
                 <div class="flex justify-end gap-2">
                   <Button variant="outline" size="sm" @click="cancelComment">取消</Button>
-                  <Button class="bg-[#FF976A] hover:bg-[#c47f66] text-white" size="sm" @click="handleSaveComment(record.id)">保存</Button>
+                  <Button class="bg-[#FF976A] hover:bg-[#e8855a] text-white" size="sm" @click="handleSaveComment(record.id)">保存</Button>
                 </div>
               </div>
               <div v-else-if="record.dietitianComment || typeof record.dietitianScore === 'number'" class="relative group">
@@ -637,7 +771,16 @@ const openReport = (r: any) => {
               <TrendingUp class="h-4 w-4 text-[#07C160]" />
               每周运动趋势
             </h3>
-            <span class="text-[10px] text-gray-400">单位：分钟</span>
+            <div class="flex items-center gap-2">
+              <ChartRulePopup title="运动趋势计算规则" button-text="计算规则">
+                <p><span class="font-bold text-gray-900">总时长 =</span> 该周所有运动记录的时长之和(分钟)</p>
+                <p><span class="font-bold text-gray-900">有效运动：</span>单次运动时长≥40分钟计为有效，与积分规则一致</p>
+                <p><span class="font-bold text-gray-900">运动次数：</span>该周运动记录条数，同一天多次运动分别计数</p>
+                <p><span class="font-bold text-gray-900">平均强度：</span>该周记录RPE强度的算术平均值(1-5级)，无记录显示"--"</p>
+                <p><span class="font-bold text-gray-900">周划分：</span>自然周(周一至周日)，从首条打卡所在周开始，首周可能不足7天</p>
+              </ChartRulePopup>
+              <span class="text-[10px] text-gray-400">单位：分钟</span>
+            </div>
           </div>
           <p class="text-[10px] text-gray-400">每周运动总时长，单次≥40分钟计为有效运动</p>
           <div class="flex items-end justify-between gap-1.5 h-24">
@@ -733,7 +876,7 @@ const openReport = (r: any) => {
                   class="h-20 w-20 rounded-lg shrink-0 border border-gray-100 overflow-hidden relative bg-black cursor-pointer"
                   @click="store.openVideoPreview(url)"
                 >
-                  <video :src="url" class="w-full h-full object-cover" preload="metadata" />
+                  <video :src="url" class="w-full h-full object-cover" preload="metadata" playsinline webkit-playsinline />
                   <div class="absolute inset-0 flex items-center justify-center bg-black/20">
                     <PlayCircle class="w-6 h-6 text-white drop-shadow" />
                   </div>
@@ -857,6 +1000,16 @@ const openReport = (r: any) => {
           </div>
 
           <!-- Weight trend chart（抽取为独立组件） -->
+          <div class="flex justify-end -mb-1">
+            <ChartRulePopup title="体重趋势图展示规则" button-text="图表规则">
+              <p><span class="font-bold text-gray-900">数据来源：</span>学员每次体重打卡记录，按时间升序排列</p>
+              <p><span class="font-bold text-gray-900">Y轴范围：</span>自动适配数据区间，上下留白20%，确保曲线居中可见</p>
+              <p><span class="font-bold text-gray-900">交互方式：</span>点击或滑动曲线可查看每个数据点的具体体重和日期</p>
+              <p><span class="font-bold text-gray-900">较上次变化：</span>当前体重减去前一次打卡体重，下降为绿色，上升为橙色</p>
+              <p><span class="font-bold text-gray-900">总变化：</span>最新体重减去首次打卡体重，百分比=总变化÷|初始体重|×100%</p>
+              <p><span class="font-bold text-gray-900">建议：</span>固定早晨空腹称重，数据更具可比性</p>
+            </ChartRulePopup>
+          </div>
           <WeightTrendChart :records="studentWeights" :gradient-id="`wg-${student?.id}`" />
 
           <!-- Weight record history with annotation -->
@@ -1003,6 +1156,7 @@ const openReport = (r: any) => {
                       <input
                         v-if="isEditingMedical"
                         type="number"
+                        inputmode="decimal"
                         class="w-20 text-center rounded border border-gray-200 p-1 text-sm focus:border-[#07C160] outline-none"
                         :value="item.beforeValue === null ? '' : item.beforeValue"
                         @input="handleMedicalChange(idx, iIdx, 'beforeValue', ($event.target as HTMLInputElement).value)"
@@ -1021,6 +1175,7 @@ const openReport = (r: any) => {
                       <input
                         v-if="isEditingMedical"
                         type="number"
+                        inputmode="decimal"
                         class="w-20 text-center rounded border border-gray-200 p-1 text-sm focus:border-[#07C160] outline-none"
                         :value="item.afterValue === null ? '' : item.afterValue"
                         @input="handleMedicalChange(idx, iIdx, 'afterValue', ($event.target as HTMLInputElement).value)"
@@ -1102,6 +1257,165 @@ const openReport = (r: any) => {
           </Card>
         </div>
       </template>
+
+      <!-- Score tab: 手动加减分 -->
+      <template v-if="activeTab === 'score'">
+        <div class="space-y-4">
+          <!-- 积分总览 -->
+          <Card>
+            <h3 class="font-bold text-gray-900 mb-4 flex items-center gap-2 border-b pb-2">
+              <Award class="h-4 w-4 text-[#07C160]" />
+              积分明细
+            </h3>
+            <div class="space-y-3">
+              <div class="flex justify-between items-center py-2 border-b border-gray-50">
+                <span class="text-sm text-gray-500">饮食积分</span>
+                <span class="text-lg font-bold text-[#07C160]">{{ scoreBreakdown.diet }}</span>
+              </div>
+              <div class="flex justify-between items-center py-2 border-b border-gray-50">
+                <span class="text-sm text-gray-500">运动积分</span>
+                <span class="text-lg font-bold text-[#FF976A]">{{ scoreBreakdown.exercise }}</span>
+              </div>
+              <div class="flex justify-between items-center py-2 border-b border-gray-50">
+                <span class="text-sm text-gray-500">手动调整</span>
+                <span class="text-lg font-bold" :class="scoreBreakdown.manual >= 0 ? 'text-blue-600' : 'text-red-500'">
+                  {{ scoreBreakdown.manual >= 0 ? '+' : '' }}{{ scoreBreakdown.manual }}
+                </span>
+              </div>
+              <div class="flex justify-between items-center pt-2">
+                <span class="text-sm font-bold text-gray-900">总积分</span>
+                <span class="text-2xl font-bold text-[#0958d9]">{{ scoreBreakdown.total }}</span>
+              </div>
+            </div>
+          </Card>
+
+          <!-- 手动加减分表单 -->
+          <Card>
+            <h3 class="font-bold text-gray-900 mb-4 flex items-center gap-2 border-b pb-2">
+              <Plus class="h-4 w-4 text-[#07C160]" />
+              手动补分 / 扣分
+            </h3>
+            <div class="space-y-3">
+              <!-- 加分/扣分切换 -->
+              <div class="flex gap-2">
+                <button
+                  :class="['flex-1 py-2.5 rounded-lg text-sm font-bold transition-all', manualMode === 'add' ? 'bg-[#07C160] text-white' : 'bg-gray-100 text-gray-500']"
+                  @click="manualMode = 'add'"
+                >
+                  <Plus class="h-4 w-4 inline-block" /> 加分
+                </button>
+                <button
+                  :class="['flex-1 py-2.5 rounded-lg text-sm font-bold transition-all', manualMode === 'subtract' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500']"
+                  @click="manualMode = 'subtract'"
+                >
+                  <Minus class="h-4 w-4 inline-block" /> 扣分
+                </button>
+              </div>
+              <!-- 分值输入 -->
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">分值</label>
+                <input
+                  v-model.number="manualPoints"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="请输入分值"
+                  class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-[#07C160]"
+                />
+              </div>
+              <!-- 原因输入 -->
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">原因说明</label>
+                <textarea
+                  v-model="manualReason"
+                  rows="2"
+                  placeholder="如：营前线下打卡补录、打卡作弊扣分等"
+                  class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-[#07C160] resize-none"
+                />
+              </div>
+              <Button
+                :disabled="!manualReason.trim() || manualPoints === 0"
+                @click="handleAddManualScore"
+                class="w-full"
+              >
+                确认{{ manualMode === 'add' ? '加分' : '扣分' }}
+              </Button>
+            </div>
+          </Card>
+
+          <!-- 手动加减分记录列表 -->
+          <Card>
+            <h3 class="font-bold text-gray-900 mb-4 flex items-center gap-2 border-b pb-2">
+              <ClipboardList class="h-4 w-4 text-[#07C160]" />
+              调整记录
+              <span v-if="studentManualScores.length > 0" class="text-xs text-gray-400 font-normal">（{{ studentManualScores.length }}条）</span>
+            </h3>
+            <div v-if="studentManualScores.length === 0" class="text-center text-xs text-gray-400 py-6">
+              暂无手动调整记录
+            </div>
+            <div v-else class="space-y-3">
+              <div
+                v-for="record in studentManualScores"
+                :key="record.id"
+                class="flex items-start gap-3 p-3 rounded-lg bg-gray-50"
+              >
+                <div
+                  class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                  :class="record.points >= 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'"
+                >
+                  {{ record.points >= 0 ? '+' : '' }}{{ record.points }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm text-gray-900">{{ record.reason }}</p>
+                  <p class="text-xs text-gray-400 mt-0.5">
+                    {{ record.dietitianName }} · {{ record.createdAt }}
+                  </p>
+                </div>
+                <button
+                  class="shrink-0 p-1.5 text-gray-300 hover:text-red-500 transition-colors"
+                  @click="handleDeleteManualScore(record.id)"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </template>
     </div>
+
+    <!-- 营期选择弹窗 -->
+    <VanPopup v-model:show="showCampPicker" position="bottom" round>
+      <div class="p-4">
+        <h3 class="font-bold text-gray-900 text-base mb-3 text-center">选择营期</h3>
+        <div class="space-y-2">
+          <button
+            v-for="camp in studentCamps"
+            :key="camp.id"
+            @click="selectedCampId = camp.id; store.selectedCampId = camp.id; showCampPicker = false"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              selectedCampId === camp.id
+                ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">{{ camp.name }}</span>
+            <span
+              v-if="camp.status === 'active'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600"
+            >进行中</span>
+            <span
+              v-else-if="camp.status === 'ended'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+            >已结束</span>
+            <span
+              v-else
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500"
+            >未开始</span>
+          </button>
+        </div>
+      </div>
+    </VanPopup>
   </div>
 </template>

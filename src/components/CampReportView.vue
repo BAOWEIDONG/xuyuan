@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useAppStore } from '../store/app';
 import { NavBar, Card } from './ui';
-import { Trophy, TrendingDown, TrendingUp, Activity, Target, Flame, Heart, Award, ChevronRight, Download, Lock, CheckCircle2, MessageCircle } from 'lucide-vue-next';
+import { Trophy, TrendingDown, TrendingUp, Activity, Target, Flame, Heart, Award, Download, Lock, CheckCircle2, MessageCircle, FileText, Bell, Gift } from 'lucide-vue-next';
 import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem, Popup as VanPopup } from 'vant';
 import { MOCK_STUDENT_METRIC_VALUES } from '../mock/data';
 import { generateStudentReport, weightTrendToSvgPoints } from '../lib/campReport';
@@ -16,20 +16,74 @@ const studentId = computed(() => store.user?.id || 's1');
 const studentName = computed(() => store.user?.name || '学员');
 const studentGender = computed(() => store.user?.gender);
 
-// 体重记录（当前学员）
-const studentWeights = computed(() => {
-  const id = studentId.value;
-  return store.weightRecords.filter((r) => r.studentId === id || !r.studentId);
+// ─── 营期切换（学员可能在多个营期中） ───
+const studentCamps = computed(() => store.getStudentCamps(studentId.value));
+const selectedCampId = ref<string>('');
+const showCampPicker = ref(false);
+const selectedCamp = computed(() => studentCamps.value.find((c) => c.id === selectedCampId.value) || null);
+
+// 初始化选中营期（优先 active，其次 ended）
+watch(() => studentId.value, (id) => {
+  if (id) {
+    const camp = store.getStudentCamp(id);
+    if (camp) selectedCampId.value = camp.id;
+  }
+}, { immediate: true });
+
+// 营期信息
+const campInfo = computed(() => selectedCamp.value || store.getStudentCamp(studentId.value));
+const campDays = computed(() => {
+  if (selectedCampId.value && campInfo.value) {
+    if (campInfo.value.startDate && campInfo.value.endDate) {
+      const start = new Date(campInfo.value.startDate);
+      const end = new Date(campInfo.value.endDate);
+      const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      return diff > 0 ? diff : 28;
+    }
+  }
+  return store.getCampDays(studentId.value);
+});
+const canView = computed(() => {
+  if (!campInfo.value) return false;
+  if (campInfo.value.status === 'ended') return true;
+  if (campInfo.value.endDate) {
+    const end = new Date(campInfo.value.endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    return today > end;
+  }
+  return false;
 });
 
-// 饮食记录（当前学员）
-const studentDiets = computed(() =>
-  store.dietRecords.filter((r) => r.studentId === studentId.value || (studentId.value === 's1' && !r.studentId)),
+// 按营期过滤打卡记录
+const campDietRecords = computed(() => selectedCampId.value ? store.getCampDietRecords(selectedCampId.value) : store.dietRecords);
+const campExerciseRecords = computed(() => selectedCampId.value ? store.getCampExerciseRecords(selectedCampId.value) : store.exerciseRecords);
+const campWeightRecords = computed(() => selectedCampId.value ? store.getCampWeightRecords(selectedCampId.value) : store.weightRecords);
+
+// 未读批注数（tabbar badge）
+const unreadCount = computed(() => {
+  if (store.user?.role !== 'student') return 0;
+  const id = store.user.id;
+  const diet = campDietRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const ex = campExerciseRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const wt = campWeightRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  return diet.length + ex.length + wt.length;
+});
+
+// 体重记录（当前学员，按营期过滤）
+const studentWeights = computed(() =>
+  campWeightRecords.value.filter((r) => r.studentId === studentId.value),
 );
 
-// 运动记录（当前学员）
+// 饮食记录（当前学员，按营期过滤）
+const studentDiets = computed(() =>
+  campDietRecords.value.filter((r) => r.studentId === studentId.value),
+);
+
+// 运动记录（当前学员，按营期过滤）
 const studentExercises = computed(() =>
-  store.exerciseRecords.filter((r) => r.studentId === studentId.value || (studentId.value === 's1' && !r.studentId)),
+  campExerciseRecords.value.filter((r) => r.studentId === studentId.value),
 );
 
 // 生成结营报告
@@ -41,32 +95,55 @@ const report = computed<StudentCampReport>(() =>
     studentDiets.value,
     studentExercises.value,
     studentWeights.value,
+    campDays.value,
   ),
 );
 
 // 体重趋势 SVG
 const svgPoints = computed(() => weightTrendToSvgPoints(report.value.weightTrend, 280, 100, 20));
 
-// 按分类分组的关键指标变化
+// 按分类分组的关键指标变化（改善的排前面，让学员优先看到好结果）
 const bodyCompositionMetrics = computed(() =>
-  report.value.metricChanges.filter((m) => m.category === '身体测量数据'),
+  report.value.metricChanges
+    .filter((m) => m.category === '身体测量数据')
+    .sort((a, b) => {
+      // 有前后值的排前面，改善的排前面
+      const aHas = a.beforeValue !== null || a.afterValue !== null;
+      const bHas = b.beforeValue !== null || b.afterValue !== null;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      if (aHas && bHas) {
+        if (a.isImproved !== b.isImproved) return a.isImproved ? -1 : 1;
+      }
+      return 0;
+    }),
 );
 
 const labMetrics = computed(() =>
-  report.value.metricChanges.filter((m) => m.category !== '身体测量数据'),
+  report.value.metricChanges
+    .filter((m) => m.category !== '身体测量数据')
+    .sort((a, b) => {
+      const aHas = a.beforeValue !== null || a.afterValue !== null;
+      const bHas = b.beforeValue !== null || b.afterValue !== null;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      if (aHas && bHas) {
+        if (a.isImproved !== b.isImproved) return a.isImproved ? -1 : 1;
+      }
+      return 0;
+    }),
 );
-
-// 有变化的指标
-const improvedMetrics = computed(() => report.value.metricChanges.filter((m) => m.isImproved));
 
 // 解锁的成就
 const unlockedAchievements = computed(() => report.value.achievements.filter((a) => a.unlocked));
-const lockedAchievements = computed(() => report.value.achievements.filter((a) => !a.unlocked));
 
-// 营养师结营寄语
-const campMessage = computed(() => (store.user?.id && store.campMessages[store.user.id]) || '');
+// 营养师结营寄语（按营期存储，key = `${campId}_${studentId}`）
+const campMessage = computed(() => {
+  const sid = store.user?.id;
+  const cid = selectedCampId.value || campInfo.value?.id;
+  if (!sid || !cid) return '';
+  return store.getCampMessage(cid, sid);
+});
 const dietitianName = computed(() => {
-  const names = [store.dietRecords, store.exerciseRecords, store.weightRecords]
+  const names = [campDietRecords.value, campExerciseRecords.value, campWeightRecords.value]
     .flat()
     .map((r) => r.dietitianName)
     .filter(Boolean);
@@ -159,16 +236,41 @@ const exportPDF = () => {
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-20 font-sans">
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-24 font-sans">
     <NavBar title="结营报告" :on-back="store.goBack">
       <template #right>
-        <button class="text-[#07C160] hover:bg-green-50 p-2 rounded-full transition-colors" @click="exportPDF">
+        <button v-if="canView" class="text-[#07C160] hover:bg-green-50 p-2 rounded-full transition-colors" @click="exportPDF">
           <Download class="h-5 w-5" />
         </button>
       </template>
     </NavBar>
 
-    <div ref="exportRef" class="p-4 space-y-4">
+    <!-- 营期切换（学员在多个营期时显示） -->
+    <div v-if="studentCamps.length > 1" class="bg-white px-4 py-2.5 flex items-center justify-between border-b border-gray-100">
+      <div>
+        <span class="text-xs text-gray-500">当前营期：</span>
+        <span class="text-sm font-medium text-gray-800">{{ selectedCamp?.name || '未选择' }}</span>
+      </div>
+      <button class="text-xs text-[#07C160] border border-[#07C160] px-2.5 py-1 rounded-full font-bold active:bg-green-50" @click="showCampPicker = true">
+        切换
+      </button>
+    </div>
+
+    <!-- 营期未结束：显示锁定状态 -->
+    <div v-if="!canView" class="flex-1 flex flex-col items-center justify-center px-6 text-center">
+      <div class="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+        <Lock class="w-10 h-10 text-gray-400" />
+      </div>
+      <h3 class="text-lg font-bold text-gray-700 mb-2">结营报告尚未生成</h3>
+      <p class="text-sm text-gray-500 leading-relaxed">
+        你的营期（{{ campInfo?.name || '当前期' }}）预计于
+        <span class="font-medium text-gray-700">{{ campInfo?.endDate || '--' }}</span>
+        结束，届时将自动生成结营报告。
+      </p>
+    </div>
+
+    <!-- 营期已结束：显示完整报告 -->
+    <div v-else ref="exportRef" class="p-4 space-y-4">
       <!-- 顶部鼓励卡片 -->
       <div class="bg-gradient-to-br from-[#07C160] to-[#06A952] rounded-2xl p-5 text-white shadow-lg">
         <div class="flex items-center gap-2 mb-3">
@@ -480,14 +582,56 @@ const exportPDF = () => {
       </div>
     </VanPopup>
 
-    <VanTabbar class="custom-tabbar print:hidden" :model-value="1">
+    <!-- 营期选择弹窗 -->
+    <VanPopup v-model:show="showCampPicker" position="bottom" round>
+      <div class="p-4">
+        <h3 class="font-bold text-gray-900 text-base mb-3 text-center">选择营期</h3>
+        <div class="space-y-2">
+          <button
+            v-for="camp in studentCamps"
+            :key="camp.id"
+            @click="selectedCampId = camp.id; showCampPicker = false"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              selectedCampId === camp.id
+                ? 'border-[#07C160] bg-green-50 text-[#07C160]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">{{ camp.name }}</span>
+            <span
+              v-if="camp.status === 'active'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600"
+            >进行中</span>
+            <span
+              v-else-if="camp.status === 'ended'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+            >已结束</span>
+            <span
+              v-else
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500"
+            >未开始</span>
+          </button>
+        </div>
+      </div>
+    </VanPopup>
+
+    <VanTabbar class="custom-tabbar print:hidden" :model-value="3">
       <VanTabbarItem @click="store.setCurrentView('dashboard')">
         <template #icon><Activity class="h-6 w-6" /></template>
         首页
       </VanTabbarItem>
-      <VanTabbarItem>
-        <template #icon><Trophy class="h-6 w-6" /></template>
-        报告
+      <VanTabbarItem @click="store.setCurrentView('activity-hub')">
+        <template #icon><Gift class="h-6 w-6" /></template>
+        活动
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('messages')" :badge="unreadCount > 0 ? unreadCount : undefined">
+        <template #icon><Bell class="h-6 w-6" /></template>
+        消息
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('health-profile')">
+        <template #icon><FileText class="h-6 w-6" /></template>
+        档案
       </VanTabbarItem>
     </VanTabbar>
   </div>
@@ -511,7 +655,7 @@ const exportPDF = () => {
   .mx-auto { margin: 0 !important; }
   .fixed { position: static !important; }
   .overflow-y-auto { overflow: visible !important; }
-  .pb-20 { padding-bottom: 1rem !important; }
+  .pb-24 { padding-bottom: 1rem !important; }
   .pt-12 { padding-top: 0 !important; }
 }
 </style>

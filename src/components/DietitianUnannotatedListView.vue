@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useAppStore } from '../store/app';
-import { MOCK_STUDENTS } from '../mock/data';
-import { NavBar, Card } from './ui';
-import { UserCircle, Coffee, Clock, Activity, Scale, Video } from 'lucide-vue-next';
+import { UserCircle, Coffee, Clock, Activity, Scale, Video, ChevronDown, FileText, Settings, Users } from 'lucide-vue-next';
+import { Popup as VanPopup, Tabbar as VanTabbar, TabbarItem as VanTabbarItem } from 'vant';
 import type { DietRecord, WeightRecord, ExerciseRecord } from '../types';
 
 const MEAL_TYPES = [
@@ -36,25 +35,35 @@ interface UnifiedItem {
 
 const store = useAppStore();
 
+// ─── 营期切换（与 store 同步，null = 全部营期） ───
+const selectedCampId = ref<string | null>(store.selectedCampId);
+const showCampPicker = ref(false);
+const selectedCamp = computed(() => selectedCampId.value ? store.camps.find((c) => c.id === selectedCampId.value) : null);
+
+// 按营期过滤打卡记录
+const campDietRecords = computed(() => selectedCampId.value ? store.getCampDietRecords(selectedCampId.value) : store.dietRecords);
+const campWeightRecords = computed(() => selectedCampId.value ? store.getCampWeightRecords(selectedCampId.value) : store.weightRecords);
+const campExerciseRecords = computed(() => selectedCampId.value ? store.getCampExerciseRecords(selectedCampId.value) : store.exerciseRecords);
+
 // 过滤标签
 const activeFilter = ref<ItemType | 'all'>('all');
 
 const mealLabel = (meal: string) => MEAL_TYPES.find((m) => m.id === meal)?.label;
 
-const studentName = (id: string) => MOCK_STUDENTS.find((s) => s.id === id)?.name || '未知学员';
+const studentName = (id: string) => store.accounts.find((a) => a.id === id)?.name || '未知学员';
 
 const allItems = computed<UnifiedItem[]>(() => {
   const items: UnifiedItem[] = [];
 
   // 饮食待批注
-  store.dietRecords
+  campDietRecords.value
     .filter((r) => !r.dietitianComment && r.dietitianScore == null)
     .forEach((r: DietRecord) => {
       items.push({
         id: r.id,
         type: 'diet',
-        studentId: r.studentId || MOCK_STUDENTS[0].id,
-        studentName: studentName(r.studentId || MOCK_STUDENTS[0].id),
+        studentId: r.studentId || '',
+        studentName: studentName(r.studentId || ''),
         date: r.date,
         meal: mealLabel(r.meal),
         description: r.description,
@@ -62,15 +71,15 @@ const allItems = computed<UnifiedItem[]>(() => {
       });
     });
 
-  // 体重待批注
-  store.weightRecords
+  // 体重待批注（WeightRecord 无 dietitianScore 字段，仅看批注）
+  campWeightRecords.value
     .filter((r) => !r.dietitianComment)
     .forEach((r: WeightRecord) => {
       items.push({
         id: r.id,
         type: 'weight',
-        studentId: r.studentId || MOCK_STUDENTS[0].id,
-        studentName: studentName(r.studentId || MOCK_STUDENTS[0].id),
+        studentId: r.studentId || '',
+        studentName: studentName(r.studentId || ''),
         date: r.date,
         weight: r.weight,
         photos: r.photos,
@@ -78,14 +87,14 @@ const allItems = computed<UnifiedItem[]>(() => {
     });
 
   // 运动待批注
-  store.exerciseRecords
-    .filter((r) => !r.dietitianComment)
+  campExerciseRecords.value
+    .filter((r) => !r.dietitianComment && r.dietitianScore == null)
     .forEach((r: ExerciseRecord) => {
       items.push({
         id: r.id,
         type: 'exercise',
-        studentId: r.studentId || MOCK_STUDENTS[0].id,
-        studentName: studentName(r.studentId || MOCK_STUDENTS[0].id),
+        studentId: r.studentId || '',
+        studentName: studentName(r.studentId || ''),
         date: r.date,
         exerciseType: r.type,
         duration: r.duration,
@@ -112,25 +121,56 @@ const countByType = computed(() => ({
 
 // 按学员分组统计（基于当前筛选结果）
 const studentGroups = computed(() => {
-  const map = new Map<string, number>();
+  const map = new Map<string, UnifiedItem[]>();
   filteredItems.value.forEach((item) => {
-    map.set(item.studentId, (map.get(item.studentId) || 0) + 1);
+    if (!map.has(item.studentId)) map.set(item.studentId, []);
+    map.get(item.studentId)!.push(item);
   });
   return Array.from(map.entries())
-    .map(([studentId, count]) => ({
-      student: MOCK_STUDENTS.find((s) => s.id === studentId),
-      count,
+    .map(([studentId, items]) => ({
+      student: store.accounts.find((a) => a.id === studentId),
+      studentId,
+      count: items.length,
+      items,
     }))
     .sort((a, b) => b.count - a.count);
 });
 
-const openStudent = (studentId: string) => {
-  store.setSelectedStudentId(studentId);
-  store.setPendingAnnotation(null);
-  store.setCurrentView('dietitian-student-detail');
-};
+// 折叠状态
+const expandedStudents = ref<Set<string>>(new Set());
+const allExpanded = computed(() =>
+  studentGroups.value.length > 0 && studentGroups.value.every(g => expandedStudents.value.has(g.studentId)),
+);
+
+function toggleStudent(studentId: string) {
+  if (expandedStudents.value.has(studentId)) {
+    expandedStudents.value.delete(studentId);
+  } else {
+    expandedStudents.value.add(studentId);
+  }
+  // 触发响应式更新
+  expandedStudents.value = new Set(expandedStudents.value);
+}
+
+function toggleAll() {
+  if (allExpanded.value) {
+    expandedStudents.value = new Set();
+  } else {
+    expandedStudents.value = new Set(studentGroups.value.map(g => g.studentId));
+  }
+}
+
+// 筛选/营期变化时默认展开第一个学员
+watch([activeFilter, selectedCampId], () => {
+  if (studentGroups.value.length > 0) {
+    expandedStudents.value = new Set([studentGroups.value[0].studentId]);
+  } else {
+    expandedStudents.value = new Set();
+  }
+}, { immediate: true });
 
 const openRecord = (item: UnifiedItem) => {
+  store.selectedCampId = selectedCampId.value; // 同步营期到 store
   store.setSelectedStudentId(item.studentId);
   store.setPendingAnnotation(item.type, item.id);
   store.setCurrentView('dietitian-student-detail');
@@ -144,8 +184,21 @@ const typeConfig: Record<ItemType, { label: string; bg: string; text: string; ic
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-safe">
-    <NavBar title="待批注" :on-back="store.goBack" />
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-24">
+    <div class="pt-[calc(env(safe-area-inset-top)+1.5rem)] px-5 pb-3 bg-white">
+      <h1 class="text-lg font-bold text-gray-900">待批注</h1>
+    </div>
+
+    <!-- 营期切换 -->
+    <div class="bg-white px-4 py-3 flex items-center justify-between border-b border-gray-100">
+      <div>
+        <div class="text-xs text-gray-500">当前营期</div>
+        <div class="text-sm font-medium text-gray-800">{{ selectedCamp?.name || '全部营期' }}</div>
+      </div>
+      <button class="text-xs text-[#FF976A] border border-[#FF976A] px-3 py-1.5 rounded-full font-bold active:bg-orange-50" @click="showCampPicker = true">
+        切换营期
+      </button>
+    </div>
 
     <div class="p-4 space-y-4">
       <!-- 统计概览 -->
@@ -173,106 +226,88 @@ const typeConfig: Record<ItemType, { label: string; bg: string; text: string; ic
         </div>
       </div>
 
-      <!-- 按学员分组的快捷入口（与筛选共存） -->
+      <!-- 按学员折叠分组列表 -->
       <div v-if="studentGroups.length > 0" class="space-y-2">
-        <div class="text-xs text-gray-500 font-medium">按学员查看 <span v-if="activeFilter !== 'all'" class="text-gray-400">（已按{{ activeFilter === 'diet' ? '饮食' : activeFilter === 'weight' ? '体重' : '运动' }}筛选）</span></div>
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="g in studentGroups"
-            :key="g.student?.id"
-            @click="openStudent(g.student!.id)"
-            class="flex items-center gap-2 bg-white border border-gray-100 rounded-lg px-3 py-2 hover:shadow-sm transition-shadow"
-          >
-            <div class="h-7 w-7 rounded-full bg-[#1677FF]/10 flex items-center justify-center text-[#1677FF]">
-              <UserCircle class="h-5 w-5" />
-            </div>
-            <span class="text-sm font-medium text-gray-900">{{ g.student?.name }}</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-[#FF976A]/10 text-[#FF976A] font-bold">{{ g.count }}</span>
+        <!-- 展开/折叠全部 -->
+        <div class="flex justify-end">
+          <button class="text-[11px] text-gray-500 font-medium flex items-center gap-1 active:scale-95 transition-transform" @click="toggleAll">
+            <ChevronDown class="w-3 h-3" :class="allExpanded ? 'rotate-180' : ''" />
+            {{ allExpanded ? '全部折叠' : '全部展开' }}
           </button>
         </div>
-      </div>
 
-      <!-- 统一待批注列表 -->
-      <div class="space-y-3">
-        <Card
-          v-for="item in filteredItems"
-          :key="`${item.type}-${item.id}`"
-          class="p-0 overflow-hidden border border-gray-100 cursor-pointer hover:shadow-md transition-shadow"
-          @click="openRecord(item)"
+        <!-- 学员分组 -->
+        <div
+          v-for="g in studentGroups"
+          :key="g.studentId"
+          class="bg-white rounded-xl border border-gray-100 overflow-hidden"
         >
-          <div class="p-3 flex gap-3">
-            <!-- 缩略图 -->
-            <div class="w-14 h-14 rounded-lg overflow-hidden shrink-0 bg-gray-100 flex items-center justify-center">
-              <template v-if="item.type === 'diet'">
-                <img
-                  v-if="item.photos && item.photos.length > 0"
-                  :src="item.photos[0]"
-                  alt="食物"
-                  class="w-full h-full object-cover"
-                />
-                <Coffee v-else class="w-5 h-5 text-gray-400" />
-              </template>
-              <template v-else-if="item.type === 'weight'">
-                <img
-                  v-if="item.photos && item.photos.length > 0"
-                  :src="item.photos[0]"
-                  alt="体重打卡"
-                  class="w-full h-full object-cover"
-                />
-                <div v-else class="w-full h-full bg-[#07C160]/8 flex items-center justify-center">
-                  <Scale class="w-5 h-5 text-[#07C160]" />
-                </div>
-              </template>
-              <template v-else>
-                <img
-                  v-if="item.photos && item.photos.length > 0"
-                  :src="item.photos[0]"
-                  alt="运动"
-                  class="w-full h-full object-cover"
-                />
-                <div v-else-if="item.videoUrls && item.videoUrls.length > 0" class="w-full h-full bg-black flex items-center justify-center">
-                  <Video class="w-5 h-5 text-white" />
-                </div>
-                <div v-else class="w-full h-full bg-blue-50 flex items-center justify-center">
-                  <Activity class="w-5 h-5 text-blue-500" />
-                </div>
-              </template>
+          <!-- 学员头部（点击折叠/展开） -->
+          <button
+            class="w-full flex items-center gap-3 px-3 py-2.5 active:bg-gray-50 transition-colors"
+            @click="toggleStudent(g.studentId)"
+          >
+            <div class="h-8 w-8 rounded-full bg-[#1677FF]/10 flex items-center justify-center text-[#1677FF] shrink-0">
+              <UserCircle class="h-5 w-5" />
             </div>
+            <span class="text-sm font-bold text-gray-900 flex-1 text-left">{{ g.student?.name || '未知学员' }}</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-[#FF976A]/10 text-[#FF976A] font-bold shrink-0">{{ g.count }}条</span>
+            <ChevronDown class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="expandedStudents.has(g.studentId) ? 'rotate-180' : ''" />
+          </button>
 
-            <!-- 内容 -->
-            <div class="flex-1 min-w-0">
-              <div class="flex justify-between items-center mb-1">
-                <div class="flex items-center gap-1.5">
-                  <span
-                    :class="['text-[10px] px-1.5 py-0.5 rounded font-bold', typeConfig[item.type].bg, typeConfig[item.type].text]"
-                  >
-                    {{ typeConfig[item.type].label }}
-                  </span>
-                  <span v-if="item.type === 'diet' && item.meal" class="text-[10px] text-gray-500">{{ item.meal }}</span>
-                  <span v-if="item.type === 'exercise'" class="text-[10px] text-gray-500">{{ item.exerciseType }}</span>
+          <!-- 展开内容 -->
+          <div v-if="expandedStudents.has(g.studentId)" class="border-t border-gray-50 divide-y divide-gray-50">
+            <div
+              v-for="item in g.items"
+              :key="`${item.type}-${item.id}`"
+              class="p-3 flex gap-3 cursor-pointer active:bg-gray-50 transition-colors"
+              @click="openRecord(item)"
+            >
+              <!-- 缩略图 -->
+              <div class="w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-gray-100 flex items-center justify-center">
+                <template v-if="item.type === 'diet'">
+                  <img v-if="item.photos && item.photos.length > 0" :src="item.photos[0]" alt="食物" class="w-full h-full object-cover" />
+                  <Coffee v-else class="w-5 h-5 text-gray-400" />
+                </template>
+                <template v-else-if="item.type === 'weight'">
+                  <img v-if="item.photos && item.photos.length > 0" :src="item.photos[0]" alt="体重打卡" class="w-full h-full object-cover" />
+                  <div v-else class="w-full h-full bg-[#07C160]/8 flex items-center justify-center">
+                    <Scale class="w-5 h-5 text-[#07C160]" />
+                  </div>
+                </template>
+                <template v-else>
+                  <img v-if="item.photos && item.photos.length > 0" :src="item.photos[0]" alt="运动" class="w-full h-full object-cover" />
+                  <div v-else-if="item.videoUrls && item.videoUrls.length > 0" class="w-full h-full bg-black flex items-center justify-center">
+                    <Video class="w-5 h-5 text-white" />
+                  </div>
+                  <div v-else class="w-full h-full bg-blue-50 flex items-center justify-center">
+                    <Activity class="w-5 h-5 text-blue-500" />
+                  </div>
+                </template>
+              </div>
+
+              <!-- 内容 -->
+              <div class="flex-1 min-w-0">
+                <div class="flex justify-between items-center mb-0.5">
+                  <div class="flex items-center gap-1.5">
+                    <span :class="['text-[10px] px-1.5 py-0.5 rounded font-bold', typeConfig[item.type].bg, typeConfig[item.type].text]">
+                      {{ typeConfig[item.type].label }}
+                    </span>
+                    <span v-if="item.type === 'diet' && item.meal" class="text-[10px] text-gray-500">{{ item.meal }}</span>
+                    <span v-if="item.type === 'exercise'" class="text-[10px] text-gray-500">{{ item.exerciseType }}</span>
+                  </div>
+                  <span class="text-[10px] text-gray-400">{{ item.date.substring(5, 16) }}</span>
                 </div>
-                <span class="text-[10px] text-gray-400">{{ item.date.substring(5, 16) }}</span>
+                <div v-if="item.type === 'diet'" class="text-xs text-gray-700 line-clamp-1">{{ item.description }}</div>
+                <div v-else-if="item.type === 'weight'" class="text-sm font-bold text-gray-900">{{ item.weight }} <span class="text-xs font-normal text-gray-400">kg</span></div>
+                <div v-else-if="item.type === 'exercise'" class="text-xs text-gray-700">
+                  {{ item.duration }}分钟 · 强度 {{ item.intensity }}/5
+                  <span v-if="item.videoUrls && item.videoUrls.length > 0" class="ml-1 text-blue-500">有视频</span>
+                </div>
               </div>
-
-              <!-- 摘要 -->
-              <div v-if="item.type === 'diet'" class="text-xs text-gray-700 line-clamp-1">{{ item.description }}</div>
-              <div v-else-if="item.type === 'weight'" class="text-sm font-bold text-gray-900">{{ item.weight }} <span class="text-xs font-normal text-gray-400">kg</span></div>
-              <div v-else-if="item.type === 'exercise'" class="text-xs text-gray-700">
-                {{ item.duration }}分钟 · 强度 {{ item.intensity }}/5
-                <span v-if="item.videoUrls && item.videoUrls.length > 0" class="ml-1 text-blue-500">🎬有视频</span>
-              </div>
-
-              <div class="flex items-center gap-1 mt-1">
-                <span class="text-[10px] text-gray-400">{{ item.studentName }}</span>
-              </div>
-            </div>
-
-            <!-- 右侧箭头 -->
-            <div class="flex items-center">
-              <span class="text-gray-300 text-sm">›</span>
             </div>
           </div>
-        </Card>
+        </div>
       </div>
 
       <!-- 空状态 -->
@@ -281,5 +316,69 @@ const typeConfig: Record<ItemType, { label: string; bg: string; text: string; ic
         {{ activeFilter === 'all' ? '暂无待批注记录，全部已处理！' : '该类型暂无待批注记录' }}
       </div>
     </div>
+
+    <!-- 营期选择弹窗 -->
+    <VanPopup v-model:show="showCampPicker" position="bottom" round>
+      <div class="p-4">
+        <h3 class="font-bold text-gray-900 text-base mb-3 text-center">选择营期</h3>
+        <div class="space-y-2">
+          <!-- 全部营期 -->
+          <button
+            @click="selectedCampId = null; store.selectedCampId = null; showCampPicker = false"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              !selectedCampId
+                ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">全部营期</span>
+            <span class="text-[10px] text-gray-400">{{ store.getAllStudents().length }} 名学员</span>
+          </button>
+          <!-- 各营期 -->
+          <button
+            v-for="camp in store.camps"
+            :key="camp.id"
+            @click="selectedCampId = camp.id; store.selectedCampId = camp.id; showCampPicker = false"
+            :class="[
+              'w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all',
+              selectedCampId === camp.id
+                ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]'
+                : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50',
+            ]"
+          >
+            <span class="font-medium">{{ camp.name }}</span>
+            <span
+              v-if="camp.status === 'active'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600"
+            >进行中</span>
+            <span
+              v-else-if="camp.status === 'ended'"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+            >已结束</span>
+            <span
+              v-else
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500"
+            >未开始</span>
+          </button>
+        </div>
+      </div>
+    </VanPopup>
+
+    <!-- Bottom Nav -->
+    <VanTabbar class="custom-tabbar tabbar-orange" :model-value="1">
+      <VanTabbarItem @click="store.setCurrentView('dietitian-dashboard')">
+        <template #icon><Users class="h-6 w-6" /></template>
+        首页
+      </VanTabbarItem>
+      <VanTabbarItem>
+        <template #icon><FileText class="h-6 w-6" /></template>
+        批注
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('dietitian-config')">
+        <template #icon><Settings class="h-6 w-6" /></template>
+        配置
+      </VanTabbarItem>
+    </VanTabbar>
   </div>
 </template>

@@ -1,4 +1,4 @@
-name: Deploy PWA to GitHub Pages
+name: Deploy H5 to GitHub Pages
 
 on:
   push:

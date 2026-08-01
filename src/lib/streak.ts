@@ -58,20 +58,23 @@ export function isDayComplete(
   weights: WeightRecord[],
   userId?: string
 ): boolean {
+  // 严格按学员匹配：记录必须属于当前用户（不再把缺 studentId 的他人记录算进来，
+  // 否则会出现"我 22 号才开始打卡，21 号的礼物却能领取"的问题）
+  const mine = (r: { studentId?: string }) => !userId || r.studentId === userId;
   const hasBreakfast = diets.some(r =>
-    r.date.startsWith(dateStr) && r.meal === 'breakfast' && (!userId || !r.studentId || r.studentId === userId)
+    r.date.startsWith(dateStr) && r.meal === 'breakfast' && mine(r)
   );
   const hasLunch = diets.some(r =>
-    r.date.startsWith(dateStr) && r.meal === 'lunch' && (!userId || !r.studentId || r.studentId === userId)
+    r.date.startsWith(dateStr) && r.meal === 'lunch' && mine(r)
   );
   const hasDinner = diets.some(r =>
-    r.date.startsWith(dateStr) && r.meal === 'dinner' && (!userId || !r.studentId || r.studentId === userId)
+    r.date.startsWith(dateStr) && r.meal === 'dinner' && mine(r)
   );
   const hasExercise = exercises.some(r =>
-    r.date.startsWith(dateStr) && (!userId || !r.studentId || r.studentId === userId)
+    r.date.startsWith(dateStr) && mine(r)
   );
   const hasWeight = weights.some(r =>
-    r.date.startsWith(dateStr) && (!userId || !r.studentId || r.studentId === userId)
+    r.date.startsWith(dateStr) && mine(r)
   );
   return hasBreakfast && hasLunch && hasDinner && hasExercise && hasWeight;
 }
@@ -99,9 +102,9 @@ export function calculateStreak(
 ): StreakResult {
   // 收集所有有任意打卡记录的日期（用于计算总打卡天数）
   const anyCheckinDates = new Set<string>();
-  exercises.forEach(r => { if (!userId || !r.studentId || r.studentId === userId) anyCheckinDates.add(r.date.substring(0, 10)); });
-  diets.forEach(r => { if (!userId || !r.studentId || r.studentId === userId) anyCheckinDates.add(r.date.substring(0, 10)); });
-  weights.forEach(r => { if (!userId || !r.studentId || r.studentId === userId) anyCheckinDates.add(r.date.substring(0, 10)); });
+  exercises.forEach(r => { if (!userId || r.studentId === userId) anyCheckinDates.add(r.date.substring(0, 10)); });
+  diets.forEach(r => { if (!userId || r.studentId === userId) anyCheckinDates.add(r.date.substring(0, 10)); });
+  weights.forEach(r => { if (!userId || r.studentId === userId) anyCheckinDates.add(r.date.substring(0, 10)); });
 
   const total = anyCheckinDates.size;
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -137,6 +140,31 @@ export interface RewardClaimRef {
   claimDate: string;
   status: string;
   trackingNumber?: string;
+}
+
+/**
+ * 检查从 startDate 到 endDate（含）的每一天是否都完成了全部打卡（五项）
+ *
+ * 用于奖励领取前的二次校验：即使 streak 计算正确，
+ * 也要确保从首次打卡日到奖励目标日之间没有缺卡的天数。
+ */
+export function isRangeComplete(
+  startDate: string,
+  endDate: string,
+  exercises: ExerciseRecord[],
+  diets: DietRecord[],
+  weights: WeightRecord[],
+  userId?: string
+): boolean {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+    const dStr = format(d, 'yyyy-MM-dd');
+    if (!isDayComplete(dStr, exercises, diets, weights, userId)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -176,11 +204,8 @@ export function getProjectedRewardDates(
     const isUnlocked = streak >= tier.requiredDays;
     let date: string | null = null;
 
-    if (isClaimed && claim) {
-      // 已领取：固定在领取日
-      date = claim.claimDate.substring(0, 10);
-    } else if (isUnlocked && streakStartDate) {
-      // 已解锁未领取：连续段中第 requiredDays 天完成的日期
+    if (isUnlocked && streakStartDate) {
+      // 已解锁（无论是否领取）：固定在连续段中第 requiredDays 天完成的日期
       const targetDate = addDays(new Date(streakStartDate), tier.requiredDays - 1);
       date = format(targetDate, 'yyyy-MM-dd');
       if (date > todayStr) {

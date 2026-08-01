@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue';
-import { format } from 'date-fns';
-import { showConfirmDialog, showToast } from 'vant';
+import { showConfirmDialog, showToast, Popup as VanPopup, TimePicker as VanTimePicker } from 'vant';
 import { useAppStore } from '../store/app';
 import { uploadFile } from '../lib/api';
 import { Button, NavBar, Card } from './ui';
@@ -9,6 +8,7 @@ import {
   UploadCloud, FileText, X, Minus, Plus,
   Moon, Dumbbell, HeartPulse, Salad, Sparkles,
   Footprints, Bike, Waves, PersonStanding, CircleDot, Volleyball, MoreHorizontal,
+  ChevronRight,
 } from 'lucide-vue-next';
 
 const EXERCISE_OPTIONS = [
@@ -76,7 +76,7 @@ watch(
   { deep: true },
 );
 
-// ---- BMI 即时反馈 ----
+// ---- BMI 即时反馈（中国成人标准 WS/T 428-2013） ----
 const bmi = computed(() => {
   const h = parseFloat(formData.height);
   const w = parseFloat(formData.weight);
@@ -87,10 +87,11 @@ const bmi = computed(() => {
 const bmiInfo = computed(() => {
   if (bmi.value === null) return null;
   const v = bmi.value;
-  if (v < 18.5) return { text: '偏瘦', color: 'text-[#1677FF]', bg: 'bg-[#1677FF]/10', tip: '你的体重偏轻，营养师会帮你科学增肌、均衡营养' };
-  if (v < 24) return { text: '标准', color: 'text-[#07C160]', bg: 'bg-[#07C160]/10', tip: '体型很标准！和营养一起，练出更好的状态' };
-  if (v < 28) return { text: '偏重', color: 'text-[#FF976A]', bg: 'bg-[#FF976A]/10', tip: '略有富余，28 天科学饮食 + 运动，一起回到最佳状态' };
-  return { text: '肥胖', color: 'text-red-500', bg: 'bg-red-50', tip: '别担心，北医康复医院的营养师团队会全程陪你科学减重' };
+  // 中国成人 BMI 分级标准（WS/T 428-2013《成人体重判定》）
+  if (v < 18.5) return { text: '体重过低', color: 'text-[#1677FF]', bg: 'bg-[#1677FF]/10', tip: '你的体重偏轻，营养师会帮你科学增肌、均衡营养', range: '< 18.5' };
+  if (v < 24) return { text: '体重正常', color: 'text-[#07C160]', bg: 'bg-[#07C160]/10', tip: '体型很标准！和营养师一起，练出更好的状态', range: '18.5 ~ 23.9' };
+  if (v < 28) return { text: '超重', color: 'text-[#FF976A]', bg: 'bg-[#FF976A]/10', tip: '略有富余，28 天科学饮食 + 运动，一起回到最佳状态', range: '24.0 ~ 27.9' };
+  return { text: '肥胖', color: 'text-red-500', bg: 'bg-red-50', tip: '别担心，北医康复医院的营养师团队会全程陪你科学管理体重', range: '≥ 28.0' };
 });
 
 // ---- 步进器 ----
@@ -169,8 +170,8 @@ const handlePrev = () => {
 
 const handleSubmit = () => {
   if (store.user) {
-    store.setUser({
-      ...store.user,
+    // 用 updateUserProfile 同步姓名/性别/年龄到 accounts + students
+    store.updateUserProfile({
       name: formData.name,
       gender: formData.gender as 'male' | 'female',
       age: parseInt(formData.age),
@@ -179,12 +180,6 @@ const handleSubmit = () => {
       medicalReports: formData.medicalReports,
     });
   }
-
-  store.addWeightRecord({
-    id: `w_${Date.now()}`,
-    date: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
-    weight: parseFloat(formData.weight),
-  });
 
   localStorage.setItem('submitted_questionnaire', JSON.stringify(formData));
   localStorage.removeItem('draft_questionnaire');
@@ -253,8 +248,8 @@ const yesNoOptions = [
   { label: '有', value: '有', activeClass: 'bg-[#FF976A] text-white border-[#FF976A]' },
 ];
 const ynOptions = [
-  { label: '很少吃', value: '否', activeClass: 'bg-[#07C160] text-white border-[#07C160]' },
-  { label: '经常吃', value: '是', activeClass: 'bg-[#FF976A] text-white border-[#FF976A]' },
+  { label: '否', value: '否', activeClass: 'bg-[#07C160] text-white border-[#07C160]' },
+  { label: '是', value: '是', activeClass: 'bg-[#FF976A] text-white border-[#FF976A]' },
 ];
 const freqOptions = [
   { label: '从不', value: '从不', activeClass: 'bg-[#07C160] text-white border-[#07C160]' },
@@ -264,13 +259,35 @@ const freqOptions = [
 
 // 步进进度百分比（动画）
 const progressPercent = computed(() => (step.value / steps.length) * 100);
+
+// ─── 时间选择器弹窗（替代原生 input[type=time]，避免 iOS 宽度溢出）───
+const showTimePicker = ref(false);
+const timePickerField = ref<'wakeTime' | 'sleepTime'>('wakeTime');
+const timePickerValue = ref<string[]>(['07', '00']);
+
+function openTimePicker(field: 'wakeTime' | 'sleepTime') {
+  timePickerField.value = field;
+  const current = formData[field] || '';
+  if (current && current.includes(':')) {
+    timePickerValue.value = current.split(':');
+  } else {
+    timePickerValue.value = field === 'wakeTime' ? ['07', '00'] : ['23', '00'];
+  }
+  showTimePicker.value = true;
+}
+
+function onTimePickerConfirm({ selectedValues }: { selectedValues: string[] }) {
+  formData[timePickerField.value] = selectedValues.join(':');
+  showTimePicker.value = false;
+  error.value = '';
+}
 </script>
 
 <template>
   <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-safe relative">
     <NavBar title="入营小问卷" />
 
-    <div class="p-4 flex-1 flex flex-col space-y-4">
+    <div class="p-4 flex-1 flex flex-col space-y-4 pb-24">
       <!-- 顶部：问候 + 进度 -->
       <div class="flex items-center justify-between px-1">
         <div>
@@ -335,21 +352,21 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
 
           <div>
             <label class="text-sm font-medium text-gray-700 block mb-1.5">年龄 <span class="text-red-500">*</span></label>
-            <input type="number" placeholder="例如: 32" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none focus:ring-2 focus:ring-[#07C160]/10 transition-all" :value="formData.age" @input="formData.age = ($event.target as HTMLInputElement).value; error = ''" />
+            <input type="number" inputmode="numeric" placeholder="例如: 32" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none focus:ring-2 focus:ring-[#07C160]/10 transition-all" :value="formData.age" @input="formData.age = ($event.target as HTMLInputElement).value; error = ''" />
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="text-sm font-medium text-gray-700 block mb-1.5">身高 (cm) <span class="text-red-500">*</span></label>
-              <input type="number" placeholder="170" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none focus:ring-2 focus:ring-[#07C160]/10 transition-all" :value="formData.height" @input="formData.height = ($event.target as HTMLInputElement).value; error = ''" />
+              <input type="number" inputmode="decimal" placeholder="170" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none focus:ring-2 focus:ring-[#07C160]/10 transition-all" :value="formData.height" @input="formData.height = ($event.target as HTMLInputElement).value; error = ''" />
             </div>
             <div>
               <label class="text-sm font-medium text-gray-700 block mb-1.5">体重 (kg) <span class="text-red-500">*</span></label>
-              <input type="number" placeholder="65.5" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none focus:ring-2 focus:ring-[#07C160]/10 transition-all" :value="formData.weight" @input="formData.weight = ($event.target as HTMLInputElement).value; error = ''" />
+              <input type="number" inputmode="decimal" placeholder="65.5" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none focus:ring-2 focus:ring-[#07C160]/10 transition-all" :value="formData.weight" @input="formData.weight = ($event.target as HTMLInputElement).value; error = ''" />
             </div>
           </div>
 
-          <!-- BMI 即时反馈 -->
+          <!-- BMI 即时反馈（中国成人标准 WS/T 428-2013） -->
           <transition name="step-fade">
             <div v-if="bmiInfo" class="rounded-2xl p-4 flex items-start gap-3 border border-gray-100" :class="bmiInfo.bg">
               <div class="flex-1">
@@ -358,7 +375,14 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
                   <span class="text-xl font-black" :class="bmiInfo.color">{{ bmi!.toFixed(1) }}</span>
                   <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-white" :class="bmiInfo.color">{{ bmiInfo.text }}</span>
                 </div>
-                <p class="text-xs text-gray-600 leading-relaxed">{{ bmiInfo.tip }}</p>
+                <p class="text-xs text-gray-600 leading-relaxed mb-2">{{ bmiInfo.tip }}</p>
+                <!-- 中国成人 BMI 参考范围 -->
+                <div class="flex gap-1.5 text-[10px] flex-wrap">
+                  <span class="px-1.5 py-0.5 rounded bg-white/70" :class="bmiInfo.text === '体重过低' ? 'font-bold text-[#1677FF]' : 'text-gray-400'">过低 &lt;18.5</span>
+                  <span class="px-1.5 py-0.5 rounded bg-white/70" :class="bmiInfo.text === '体重正常' ? 'font-bold text-[#07C160]' : 'text-gray-400'">正常 18.5~23.9</span>
+                  <span class="px-1.5 py-0.5 rounded bg-white/70" :class="bmiInfo.text === '超重' ? 'font-bold text-[#FF976A]' : 'text-gray-400'">超重 24.0~27.9</span>
+                  <span class="px-1.5 py-0.5 rounded bg-white/70" :class="bmiInfo.text === '肥胖' ? 'font-bold text-red-500' : 'text-gray-400'">肥胖 ≥28.0</span>
+                </div>
               </div>
             </div>
           </transition>
@@ -374,7 +398,7 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
       <Card v-else-if="step === 2" key="s2" class="space-y-6 flex-1">
         <div>
           <h3 class="font-bold text-gray-900 text-lg">聊聊你的身体</h3>
-          <p class="text-xs text-gray-400 mt-1">这些信息只有营养师能看到，用来保障你的减重安全</p>
+          <p class="text-xs text-gray-400 mt-1">这些信息只有营养师能看到，用来保障你的健康安全</p>
         </div>
 
         <div v-for="q in [
@@ -410,17 +434,25 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
       <Card v-else-if="step === 3" key="s3" class="space-y-6 flex-1">
         <div>
           <h3 class="font-bold text-gray-900 text-lg">你的日常节奏</h3>
-          <p class="text-xs text-gray-400 mt-1">作息和习惯对减重影响很大，如实填写就好</p>
+          <p class="text-xs text-gray-400 mt-1">作息和习惯对体重管理影响很大，如实填写就好</p>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-sm font-medium text-gray-700 block mb-1.5">通常几点起床 <span class="text-red-500">*</span></label>
-            <input type="time" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none" :value="formData.wakeTime" @input="formData.wakeTime = ($event.target as HTMLInputElement).value; error = ''" />
+        <div class="grid grid-cols-2 gap-2">
+          <div class="min-w-0">
+            <label class="text-sm font-medium text-gray-700 block mb-1.5">几点起床 <span class="text-red-500">*</span></label>
+            <button type="button" @click="openTimePicker('wakeTime')"
+              class="w-full px-2 py-2 rounded-xl border border-gray-200 text-sm focus:border-[#07C160] outline-none flex items-center justify-between">
+              <span :class="formData.wakeTime ? 'text-gray-900' : 'text-gray-400'">{{ formData.wakeTime || '选择时间' }}</span>
+              <ChevronRight class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            </button>
           </div>
-          <div>
-            <label class="text-sm font-medium text-gray-700 block mb-1.5">通常几点睡觉 <span class="text-red-500">*</span></label>
-            <input type="time" class="w-full rounded-xl border border-gray-200 p-3.5 focus:border-[#07C160] focus:outline-none" :value="formData.sleepTime" @input="formData.sleepTime = ($event.target as HTMLInputElement).value; error = ''" />
+          <div class="min-w-0">
+            <label class="text-sm font-medium text-gray-700 block mb-1.5">几点睡觉 <span class="text-red-500">*</span></label>
+            <button type="button" @click="openTimePicker('sleepTime')"
+              class="w-full px-2 py-2 rounded-xl border border-gray-200 text-sm focus:border-[#07C160] outline-none flex items-center justify-between">
+              <span :class="formData.sleepTime ? 'text-gray-900' : 'text-gray-400'">{{ formData.sleepTime || '选择时间' }}</span>
+              <ChevronRight class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            </button>
           </div>
         </div>
 
@@ -434,7 +466,7 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
             <div class="flex-1 text-center" @click="startEdit('sleepDuration')">
               <input
                 v-if="editingField === 'sleepDuration'"
-                type="number" step="0.5" min="0" max="24"
+                type="number" inputmode="decimal" step="0.5" min="0" max="24"
                 v-model="formData.sleepDuration"
                 @blur="stopEdit"
                 v-focus
@@ -461,7 +493,7 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
             <div class="flex-1 text-center" @click="startEdit('dailyWater')">
               <input
                 v-if="editingField === 'dailyWater'"
-                type="number" step="100" min="0" max="10000"
+                type="number" inputmode="numeric" step="100" min="0" max="10000"
                 v-model="formData.dailyWater"
                 @blur="stopEdit"
                 v-focus
@@ -515,7 +547,7 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
             <div class="flex-1 text-center" @click="startEdit('exerciseFrequency')">
               <input
                 v-if="editingField === 'exerciseFrequency'"
-                type="number" step="1" min="0" max="21"
+                type="number" inputmode="numeric" step="1" min="0" max="21"
                 v-model="formData.exerciseFrequency"
                 @blur="stopEdit"
                 v-focus
@@ -542,7 +574,7 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
             <div class="flex-1 text-center" @click="startEdit('exerciseDuration')">
               <input
                 v-if="editingField === 'exerciseDuration'"
-                type="number" step="5" min="0" max="600"
+                type="number" inputmode="numeric" step="5" min="0" max="600"
                 v-model="formData.exerciseDuration"
                 @blur="stopEdit"
                 v-focus
@@ -652,17 +684,30 @@ const progressPercent = computed(() => (step.value / steps.length) * 100);
       </transition>
 
       <p v-if="error" class="text-red-500 text-sm text-center animate-shake">{{ error }}</p>
+    </div>
 
-      <!-- Navigation -->
-      <div class="pt-4 flex gap-3">
+    <!-- 固定底部导航按钮 -->
+    <div class="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-sm border-t border-gray-100 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div class="max-w-md mx-auto flex gap-3">
         <Button v-if="step > 1" class="flex-1 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50" @click="handlePrev">
           上一步
         </Button>
         <Button class="flex-1 bg-[#07C160] hover:bg-[#07C160]/90 text-white" @click="handleNext">
-          {{ step === 5 ? '完成，开启我的减重之旅' : '下一步' }}
+          {{ step === 5 ? '完成，开启我的健康之旅' : '下一步' }}
         </Button>
       </div>
     </div>
+
+    <!-- 时间选择器弹窗 -->
+    <VanPopup v-model:show="showTimePicker" position="bottom" round>
+      <VanTimePicker
+        v-model="timePickerValue"
+        :title="timePickerField === 'wakeTime' ? '选择起床时间' : '选择睡觉时间'"
+        :columns-type="['hour', 'minute']"
+        @confirm="onTimePickerConfirm"
+        @cancel="showTimePicker = false"
+      />
+    </VanPopup>
   </div>
 </template>
 

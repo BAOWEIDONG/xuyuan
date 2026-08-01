@@ -6,7 +6,7 @@ import { celebrateCheckin, celebrateReward } from '../lib/confetti';
 import { calculateStreak } from '../lib/streak';
 import { uploadFile } from '../lib/api';
 import { compressVideo } from '../lib/videoCompress';
-import { NavBar, Card, Button, Input } from './ui';
+import { NavBar, Card, Button, Input, ChartRulePopup } from './ui';
 import { Plus, X, Camera, Video, PlayCircle, Loader, MessageCircle, ChevronDown, Dumbbell, TrendingUp } from 'lucide-vue-next';
 import { computeExerciseTrends } from '../lib/journey';
 import { formatDateTime } from '../lib/utils';
@@ -33,14 +33,33 @@ type ActivityItem = {
 
 const store = useAppStore();
 
-const userExercises = computed(() => store.exerciseRecords.filter((r) => r.studentId === store.user?.id || !r.studentId));
+// ─── Tab 结构：打卡 / 趋势 / 记录 ────────────────────────
+const activeTab = ref<'checkin' | 'trend' | 'records'>('checkin');
+
+// ─── 营期切换（多期时显示） ──────────────────────────────
+const availableCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+const activeCampId = computed(() => {
+  if (store.selectedCampId && availableCamps.value.some(c => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  const active = availableCamps.value.find(c => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
+
+// 按营期过滤打卡记录
+const campDiet = computed(() => activeCampId.value ? store.getCampDietRecords(activeCampId.value) : store.dietRecords);
+const campEx = computed(() => activeCampId.value ? store.getCampExerciseRecords(activeCampId.value) : store.exerciseRecords);
+const campWt = computed(() => activeCampId.value ? store.getCampWeightRecords(activeCampId.value) : store.weightRecords);
+const campRewardTiers = computed(() => activeCampId.value ? store.getCampRewardTiers(activeCampId.value) : store.rewardTiers);
+
+const userExercises = computed(() => campEx.value.filter((r) => r.studentId === store.user?.id));
 
 // 所有历史记录按日期分组
 const allHistory = computed(() => [...userExercises.value].sort((a, b) => b.date.localeCompare(a.date)));
 const { grouped: groupedHistory, toggleDate, isExpanded } = useDateGrouping(allHistory);
 
 // 运动周趋势（规则见 journey.ts computeExerciseTrends 头部文档注释）
-const exerciseTrends = computed(() => computeExerciseTrends(store.exerciseRecords, store.user?.id));
+const exerciseTrends = computed(() => computeExerciseTrends(campEx.value, store.user?.id));
 const exerciseTrendMax = computed(() => Math.max(...exerciseTrends.value.map((t) => t.totalDuration), 1));
 
 // 全部运动统计（不限时间范围，包含所有历史记录）
@@ -250,23 +269,36 @@ const handleToggleDate = (date: string) => {
 // 默认展开的"今天"分组直接可见，其中的未读批注视为已读
 markGroupCommentsRead(format(new Date(), 'yyyy-MM-dd'));
 
-// 消息中心跳转：自动展开目标日期并滚动到对应记录
+// 消息中心跳转：切到记录Tab，自动展开目标日期并滚动到对应记录
 onMounted(() => {
   if (store.selectedDateStr) {
     const targetDate = store.selectedDateStr;
     store.setSelectedDateStr(null);
+    activeTab.value = 'records';
     if (!isExpanded(targetDate)) toggleDate(targetDate);
     markGroupCommentsRead(targetDate);
     nextTick(() => {
       nextTick(() => {
         const el = document.getElementById(`exercise-group-${targetDate}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (el) el.scrollIntoView({ block: 'start' });
       });
     });
   }
 });
 
+const todayStr = format(new Date(), 'yyyy-MM-dd');
+const todayExercise = computed(() =>
+  userExercises.value.filter((r) => r.date.substring(0, 10) === todayStr)
+);
+const MAX_DAILY_EXERCISE = 5;
+const hasReachedDailyLimit = computed(() => todayExercise.value.length >= MAX_DAILY_EXERCISE);
+
 const handleSubmit = () => {
+  if (hasReachedDailyLimit.value) {
+    error.value = `今日已完成 ${MAX_DAILY_EXERCISE} 次运动打卡，明天再来吧`;
+    return;
+  }
+
   for (const a of activities.value) {
     if (!a.duration) {
       error.value = '请填写所有运动的时长';
@@ -280,10 +312,14 @@ const handleSubmit = () => {
 
   error.value = '';
 
+  // 打卡前连续天数（判断是否因本次打卡而增长）
+  const streakBefore = calculateStreak(campEx.value, campDiet.value, campWt.value, store.user?.id);
+
   activities.value.forEach((a, index) => {
     store.addExerciseRecord({
       id: `ex_${Date.now()}_${index}`,
       studentId: store.user?.id || 's1',
+      campId: activeCampId.value || undefined,
       date: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
       type: a.type === '其他' ? a.customType : a.type,
       duration: parseInt(a.duration),
@@ -294,15 +330,21 @@ const handleSubmit = () => {
     });
   });
 
-  // Check if this check-in unlocks a reward
-  const streakResult = calculateStreak(store.exerciseRecords, store.dietRecords, store.weightRecords, store.user?.id);
-  const matchedTier = store.rewardTiers.find(t => t.requiredDays === streakResult.currentStreak);
-  if (matchedTier) {
-    celebrateReward(matchedTier.name);
+  // 仅当连续天数增长且匹配奖励档位且未领取时，触发奖励庆祝
+  const streakAfter = calculateStreak(campEx.value, campDiet.value, campWt.value, store.user?.id);
+  const tierMatched = streakAfter.currentStreak > streakBefore.currentStreak
+    ? campRewardTiers.value.find(t => t.requiredDays === streakAfter.currentStreak)
+    : undefined;
+  const claims = activeCampId.value ? store.getCampRewardClaims(activeCampId.value) : store.rewardClaims;
+  const alreadyClaimed = tierMatched
+    ? claims.some(c => c.tierId === tierMatched.id && c.studentId === store.user?.id)
+    : false;
+  if (tierMatched && !alreadyClaimed) {
+    celebrateReward(tierMatched.name);
   } else {
     celebrateCheckin('exercise');
   }
-  // Stay on current page - reset form instead of navigating
+  store.justCheckedIn = true;
   activities.value = activities.value.map(a => ({ ...a, duration: '', customType: '' }));
   notes.value = '';
   photos.value = [];
@@ -314,8 +356,34 @@ const handleSubmit = () => {
   <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-8 font-sans">
     <NavBar title="运动打卡" :on-back="store.goBack" />
 
-    <div class="p-4 space-y-4">
-      <Card v-for="(activity, index) in activities" :key="activity.id" class="space-y-5 relative pt-8 shadow-sm transition-transform hover:scale-[1.005]">
+    <!-- Tab 切换：打卡 / 趋势 / 记录（液态玻璃胶囊） -->
+    <div class="sticky top-14 z-20 px-4 pt-3 pb-1">
+      <div class="seg-tabs">
+        <button
+          v-for="tab in ([{ id: 'checkin', label: '打卡' }, { id: 'trend', label: '趋势' }, { id: 'records', label: '记录' }] as const)"
+          :key="tab.id"
+          @click="activeTab = tab.id"
+          :class="['seg-tab seg-tab-green', activeTab === tab.id ? 'active' : '']"
+        >{{ tab.label }}</button>
+      </div>
+    </div>
+
+    <!-- ══════════ Tab 1: 打卡 ══════════ -->
+    <div v-show="activeTab === 'checkin'" class="p-4 space-y-4 pb-32">
+      <!-- 今日已达上限提示 -->
+      <div v-if="hasReachedDailyLimit" class="rounded-xl bg-[#07C160]/8 border border-[#07C160]/20 p-3 flex items-center gap-2">
+        <div class="w-8 h-8 rounded-full bg-[#07C160]/15 flex items-center justify-center shrink-0">
+          <Dumbbell class="w-4 h-4 text-[#07C160]" />
+        </div>
+        <div class="flex-1">
+          <div class="text-sm font-bold text-[#07C160]">今日运动打卡已达上限</div>
+          <div class="text-[11px] text-gray-500">每天最多 {{ MAX_DAILY_EXERCISE }} 次运动打卡，明天再来吧</div>
+        </div>
+        <button @click="activeTab = 'records'" class="text-xs font-bold text-[#07C160] bg-white px-3 py-1.5 rounded-full active:scale-95 transition-transform shrink-0">查看记录</button>
+      </div>
+      <div v-if="hasReachedDailyLimit" class="h-0"></div>
+
+      <Card v-for="(activity, index) in activities" :key="activity.id" class="space-y-5 relative pt-8 shadow-sm" :class="{ 'opacity-50 pointer-events-none': hasReachedDailyLimit }">
         <button
           v-if="activities.length > 1"
           class="absolute top-3 right-3 text-gray-400 hover:text-red-500 transition-colors p-1"
@@ -367,6 +435,7 @@ const handleSubmit = () => {
           </div>
           <Input
             type="number"
+            inputmode="numeric"
             placeholder="或手动输入时长，例如 30"
             :value="activity.duration"
             @input="updateActivity(activity.id, 'duration', ($event.target as HTMLInputElement).value)"
@@ -381,7 +450,6 @@ const handleSubmit = () => {
 
           <!-- Intensity buttons with gradient spectrum bar -->
           <div class="relative px-2 py-3">
-            <!-- Gradient spectrum background -->
             <div class="absolute left-3 right-3 top-1/2 -translate-y-1/2 h-1.5 rounded-full opacity-10"
                  style="background: linear-gradient(to right, #3B82F6 0%, #10B981 25%, #F59E0B 50%, #F97316 75%, #EF4444 100%);"></div>
 
@@ -399,16 +467,12 @@ const handleSubmit = () => {
                 :style="activity.intensity === config.level ? { backgroundColor: config.color, color: 'white', boxShadow: `0 4px 14px ${config.color}50` } : { color: '#9CA3AF' }"
               >
                 <span class="font-bold text-sm relative z-10">{{ config.level }}</span>
-
-                <!-- Burst ring 1 -->
                 <span
                   v-if="burstKey === `${activity.id}-${config.level}`"
                   :key="`${burstId}-r1`"
                   class="absolute inset-0 rounded-full pointer-events-none"
                   :style="{ animation: `burst-${config.level} 0.6s ease-out forwards`, backgroundColor: config.color }"
                 ></span>
-
-                <!-- Burst ring 2 - only for level 4-5, with slight delay for layered effect -->
                 <span
                   v-if="burstKey === `${activity.id}-${config.level}` && config.level >= 4"
                   :key="`${burstId}-r2`"
@@ -417,7 +481,6 @@ const handleSubmit = () => {
                 ></span>
               </button>
             </div>
-            <!-- Hint text -->
             <p class="text-center text-[10px] text-gray-400 mt-1">点击或左右滑动选择强度</p>
           </div>
 
@@ -502,14 +565,12 @@ const handleSubmit = () => {
           <label class="text-sm font-bold text-gray-900 block mb-2">运动视频 (最多 {{ MAX_VIDEOS }} 个)</label>
           <input ref="videoInputRef" type="file" accept="video/*" multiple class="hidden" @change="handleVideoSelect" />
 
-          <!-- Compression loading -->
           <div v-if="videoCompressing" class="aspect-video rounded-xl border-2 border-[#07C160]/30 bg-[#07C160]/5 flex flex-col items-center justify-center gap-3">
             <Loader class="h-8 w-8 text-[#07C160] animate-spin" />
             <span class="text-sm text-[#07C160] font-medium">正在处理视频 {{ compressProgress }}%</span>
             <span class="text-[10px] text-gray-400">请耐心等待</span>
           </div>
 
-          <!-- Video grid -->
           <div v-else class="grid grid-cols-3 gap-2">
             <div
               v-for="(url, idx) in videoUrls"
@@ -520,6 +581,8 @@ const handleSubmit = () => {
                 :src="url"
                 class="w-full min-h-full object-cover cursor-pointer"
                 preload="metadata"
+                playsinline
+                webkit-playsinline
                 @click="store.openVideoPreview(url)"
               />
               <button
@@ -559,23 +622,28 @@ const handleSubmit = () => {
       </Card>
 
       <div v-if="error" class="text-red-500 text-sm text-center font-medium bg-red-50 p-2 rounded-lg animate-shake">{{ error }}</div>
+    </div>
 
-      <div class="pt-4 pb-8">
-        <Button class="w-full shadow-lg shadow-[#07C160]/20 active:scale-95 transition-transform" size="lg" @click="handleSubmit">
-          完成打卡
-        </Button>
-      </div>
-
-      <!-- 运动周趋势（规则见 journey.ts computeExerciseTrends 头部文档注释） -->
+    <!-- ══════════ Tab 2: 趋势 ══════════ -->
+    <div v-show="activeTab === 'trend'" class="p-4 space-y-4">
       <Card v-if="exerciseTrends.length > 0" class="space-y-3">
         <div class="flex items-center justify-between">
           <h3 class="font-bold text-gray-900 flex items-center gap-1.5 text-sm">
             <TrendingUp class="h-4 w-4 text-[#07C160]" />
             每周运动趋势
           </h3>
-          <span class="text-[10px] text-gray-400">单位：分钟</span>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-400">单位：分钟</span>
+            <ChartRulePopup title="运动趋势计算规则">
+              <p><span class="font-bold text-gray-900">周划分：</span>按自然周（周一至周日）分组，从首条打卡记录所在周开始，首周可能不足7天。</p>
+              <p><span class="font-bold text-gray-900">运动总时长：</span>该周所有运动记录的 duration 之和（分钟）。</p>
+              <p><span class="font-bold text-gray-900">运动次数：</span>该周运动记录条数，同一天多次运动分别计数。</p>
+              <p><span class="font-bold text-gray-900">达标次数（≥40min）：</span>单次运动时长≥40分钟的记录数。与积分规则一致--每日完成单次40分钟以上运动即可计分，可理解为"有效运动次数"。</p>
+              <p><span class="font-bold text-gray-900">平均强度：</span>该周记录的 intensity 算术平均值（RPE 1-5），无记录时显示"--"。</p>
+              <p><span class="font-bold text-gray-900">柱状图高度：</span>该周总时长 ÷ 全部周次中的最大总时长 × 100%。</p>
+            </ChartRulePopup>
+          </div>
         </div>
-        <p class="text-[10px] text-gray-400">每周运动总时长，坚持就是胜利</p>
         <!-- 柱状图：每周总时长（分钟） -->
         <div class="flex items-end justify-between gap-1.5 h-24">
           <div v-for="t in exerciseTrends" :key="t.weekLabel" class="flex-1 flex flex-col items-center justify-end h-full">
@@ -631,118 +699,128 @@ const handleSubmit = () => {
           </div>
         </div>
       </Card>
-
-      <div class="pt-2 pb-6 border-t border-gray-100">
-        <h3 class="font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <div class="w-1.5 h-4 bg-[#07C160] rounded-full"></div>
-          历史运动记录
-        </h3>
-
-        <div v-if="groupedHistory.length === 0" class="text-center py-10 bg-white rounded-2xl border border-gray-100 animate-pop-in">
-          <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-[#07C160]/10 flex items-center justify-center">
-            <Dumbbell class="w-8 h-8 text-[#07C160]" />
-          </div>
-          <div class="text-sm font-bold text-gray-700 mb-1">还没有运动记录</div>
-          <div class="text-xs text-gray-400 mb-4">完成今天的第一次运动打卡吧</div>
-          <button @click="activities[0].duration = '30'" class="text-xs font-bold text-[#07C160] bg-[#07C160]/10 px-4 py-2 rounded-full active:scale-95 transition-transform">从 30 分钟开始 →</button>
+      <div v-else class="text-center py-10 bg-white rounded-2xl border border-gray-100">
+        <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-[#07C160]/10 flex items-center justify-center">
+          <TrendingUp class="w-8 h-8 text-[#07C160]" />
         </div>
-        <div v-else class="space-y-4">
-          <div v-for="group in groupedHistory" :key="group.date" :id="`exercise-group-${group.date}`">
-            <!-- Date header -->
-            <button
-              @click="handleToggleDate(group.date)"
-              class="w-full flex items-center justify-between bg-white rounded-xl px-4 py-2.5 mb-2 border border-gray-100 sticky top-0 z-10 shadow-sm"
-            >
-              <div class="flex items-center gap-2">
-                <span class="w-1 h-4 rounded-full bg-[#07C160]"></span>
-                <span class="text-sm font-bold text-gray-800">{{ group.label }}</span>
-                <span class="text-[10px] text-gray-400">{{ group.records.length }}条记录</span>
-                <span v-if="group.records.some((r) => r.dietitianComment && !r.commentRead)" class="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">新批注</span>
-              </div>
-              <ChevronDown
-                class="w-4 h-4 text-gray-400 transition-transform duration-200"
-                :class="{ 'rotate-180': isExpanded(group.date) }"
-              />
-            </button>
-            <!-- Records for this date -->
-            <div v-show="isExpanded(group.date)" class="space-y-4 animate-pop-in">
-              <Card v-for="record in group.records" :key="record.id" class="p-0 overflow-hidden transition-transform hover:scale-[1.01]">
-                <div class="p-4 border-b border-gray-50">
-                  <div class="flex justify-between items-center mb-3">
-                    <span class="text-xs text-gray-500 font-medium">{{ formatDateTime(record.date) }}</span>
-                    <span class="text-[10px] px-2 py-0.5 rounded text-[#07C160] bg-[#07C160]/10 font-bold uppercase">
-                      {{ record.type }}
-                    </span>
-                  </div>
+        <div class="text-sm font-bold text-gray-700 mb-1">还没有运动数据</div>
+        <div class="text-xs text-gray-400">完成打卡后生成每周运动趋势</div>
+      </div>
+    </div>
 
-                  <div class="flex justify-between mb-2">
-                    <span class="text-sm font-medium text-gray-900">时长: {{ record.duration }} 分钟</span>
-                    <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
-                          :style="{ backgroundColor: getIntensityConfig(record.intensity).lightBg, color: getIntensityConfig(record.intensity).color }">
-                      <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: getIntensityConfig(record.intensity).color }"></span>
-                      {{ getIntensityConfig(record.intensity).label }}
-                    </span>
-                  </div>
+    <!-- ══════════ Tab 3: 记录 ══════════ -->
+    <div v-show="activeTab === 'records'" class="p-4 space-y-4">
+      <div v-if="groupedHistory.length === 0" class="text-center py-10 bg-white rounded-2xl border border-gray-100 animate-pop-in">
+        <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-[#07C160]/10 flex items-center justify-center">
+          <Dumbbell class="w-8 h-8 text-[#07C160]" />
+        </div>
+        <div class="text-sm font-bold text-gray-700 mb-1">还没有运动记录</div>
+        <div class="text-xs text-gray-400 mb-4">完成今天的第一次运动打卡吧</div>
+        <button @click="activeTab = 'checkin'; activities[0].duration = '30'" class="text-xs font-bold text-[#07C160] bg-[#07C160]/10 px-4 py-2 rounded-full active:scale-95 transition-transform">从 30 分钟开始 →</button>
+      </div>
+      <div v-else class="space-y-4">
+        <div v-for="group in groupedHistory" :key="group.date" :id="`exercise-group-${group.date}`">
+          <!-- Date header -->
+          <button
+            @click="handleToggleDate(group.date)"
+            class="w-full flex items-center justify-between bg-white rounded-xl px-4 py-2.5 mb-2 border border-gray-100 sticky top-[104px] z-10 shadow-sm"
+          >
+            <div class="flex items-center gap-2">
+              <span class="w-1 h-4 rounded-full bg-[#07C160]"></span>
+              <span class="text-sm font-bold text-gray-800">{{ group.label }}</span>
+              <span class="text-[10px] text-gray-400">{{ group.records.length }}条记录</span>
+              <span v-if="group.records.some((r) => r.dietitianComment && !r.commentRead)" class="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">新批注</span>
+            </div>
+            <ChevronDown
+              class="w-4 h-4 text-gray-400 transition-transform duration-200"
+              :class="{ 'rotate-180': isExpanded(group.date) }"
+            />
+          </button>
+          <!-- Records for this date -->
+          <div v-show="isExpanded(group.date)" class="space-y-4 animate-pop-in">
+            <Card v-for="record in group.records" :key="record.id" class="p-0 overflow-hidden">
+              <div class="p-4 border-b border-gray-50">
+                <div class="flex justify-between items-center mb-3">
+                  <span class="text-xs text-gray-500 font-medium">{{ formatDateTime(record.date) }}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded text-[#07C160] bg-[#07C160]/10 font-bold uppercase">
+                    {{ record.type }}
+                  </span>
+                </div>
 
-                  <p v-if="record.notes" class="text-sm text-gray-700 mb-3 whitespace-pre-wrap">{{ record.notes }}</p>
+                <div class="flex justify-between mb-2">
+                  <span class="text-sm font-medium text-gray-900">时长: {{ record.duration }} 分钟</span>
+                  <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                        :style="{ backgroundColor: getIntensityConfig(record.intensity).lightBg, color: getIntensityConfig(record.intensity).color }">
+                    <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: getIntensityConfig(record.intensity).color }"></span>
+                    {{ getIntensityConfig(record.intensity).label }}
+                  </span>
+                </div>
 
-                  <div v-if="record.photos && record.photos.length > 0" class="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                    <img
-                      v-for="(url, idx) in record.photos"
-                      :key="idx"
-                      :src="url"
-                      alt="运动"
-                      class="h-20 w-20 object-cover rounded-lg shrink-0 snap-center border border-gray-100 cursor-pointer"
-                      @click="store.openImagePreview(record.photos || [], idx)"
-                    />
-                  </div>
+                <p v-if="record.notes" class="text-sm text-gray-700 mb-3 whitespace-pre-wrap">{{ record.notes }}</p>
 
-                  <div v-if="record.videoUrls && record.videoUrls.length > 0" class="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                    <div
-                      v-for="(url, idx) in record.videoUrls"
-                      :key="idx"
-                      class="h-20 w-20 rounded-lg shrink-0 snap-center border border-gray-100 overflow-hidden relative bg-black cursor-pointer"
-                      @click="store.openVideoPreview(url)"
-                    >
-                      <video :src="url" class="w-full h-full object-cover" preload="metadata" />
-                      <div class="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <PlayCircle class="w-6 h-6 text-white drop-shadow" />
-                      </div>
-                    </div>
-                  </div>
+                <div v-if="record.photos && record.photos.length > 0" class="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                  <img
+                    v-for="(url, idx) in record.photos"
+                    :key="idx"
+                    :src="url"
+                    alt="运动"
+                    class="h-20 w-20 object-cover rounded-lg shrink-0 snap-center border border-gray-100 cursor-pointer"
+                    @click="store.openImagePreview(record.photos || [], idx)"
+                  />
+                </div>
 
-                  <div v-if="record.dietitianComment" class="mt-3 p-2.5 rounded-lg bg-[#07C160]/5 border border-[#07C160]/10">
-                    <div class="flex items-center gap-1.5 mb-1">
-                      <MessageCircle class="w-3 h-3 text-[#07C160]" />
-                      <span class="text-[11px] font-bold text-[#07C160]">批注</span>
-                      <span v-if="record.dietitianScore === 2" class="text-[10px] font-bold text-white bg-[#07C160] px-1.5 py-0.5 rounded">+2</span>
-                      <span v-else-if="record.dietitianScore === 1" class="text-[10px] font-bold text-white bg-[#FF976A] px-1.5 py-0.5 rounded">+1</span>
-                      <span v-else-if="record.dietitianScore === 0" class="text-[10px] font-bold text-white bg-gray-400 px-1.5 py-0.5 rounded">0</span>
-                      <span v-if="!record.commentRead" class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-                    </div>
-                    <p class="text-xs text-gray-700 leading-relaxed">{{ record.dietitianComment }}</p>
-                    <!-- 学员反馈 -->
-                    <div class="flex gap-2 mt-2">
-                      <button
-                        @click="markExerciseFeedback(record.id, 'received')"
-                        :class="['text-[10px] px-2.5 py-1 rounded-full font-bold transition-all active:scale-95', record.studentFeedback === 'received' ? 'bg-[#07C160] text-white' : 'bg-white text-gray-500 border border-gray-200']"
-                      >
-                        {{ record.studentFeedback === 'received' ? '✓ 已收到' : '收到' }}
-                      </button>
-                      <button
-                        @click="markExerciseFeedback(record.id, 'helpful')"
-                        :class="['text-[10px] px-2.5 py-1 rounded-full font-bold transition-all active:scale-95', record.studentFeedback === 'helpful' ? 'bg-[#FF976A] text-white' : 'bg-white text-gray-500 border border-gray-200']"
-                      >
-                        {{ record.studentFeedback === 'helpful' ? '✓ 有用' : '👍 有用' }}
-                      </button>
+                <div v-if="record.videoUrls && record.videoUrls.length > 0" class="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                  <div
+                    v-for="(url, idx) in record.videoUrls"
+                    :key="idx"
+                    class="h-20 w-20 rounded-lg shrink-0 snap-center border border-gray-100 overflow-hidden relative bg-black cursor-pointer"
+                    @click="store.openVideoPreview(url)"
+                  >
+                    <video :src="url" class="w-full h-full object-cover" preload="metadata" playsinline webkit-playsinline />
+                    <div class="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <PlayCircle class="w-6 h-6 text-white drop-shadow" />
                     </div>
                   </div>
                 </div>
-              </Card>
-            </div>
+
+                <div v-if="record.dietitianComment" class="mt-3 p-2.5 rounded-lg bg-[#07C160]/5 border border-[#07C160]/10">
+                  <div class="flex items-center gap-1.5 mb-1">
+                    <MessageCircle class="w-3 h-3 text-[#07C160]" />
+                    <span class="text-[11px] font-bold text-[#07C160]">批注</span>
+                    <span v-if="record.dietitianScore === 2" class="text-[10px] font-bold text-white bg-[#07C160] px-1.5 py-0.5 rounded">+2</span>
+                    <span v-else-if="record.dietitianScore === 1" class="text-[10px] font-bold text-white bg-[#FF976A] px-1.5 py-0.5 rounded">+1</span>
+                    <span v-else-if="record.dietitianScore === 0" class="text-[10px] font-bold text-white bg-gray-400 px-1.5 py-0.5 rounded">0</span>
+                    <span v-if="!record.commentRead" class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                  </div>
+                  <p class="text-xs text-gray-700 leading-relaxed">{{ record.dietitianComment }}</p>
+                  <!-- 学员反馈 -->
+                  <div class="flex gap-2 mt-2">
+                    <button
+                      @click="markExerciseFeedback(record.id, 'received')"
+                      :class="['text-[10px] px-2.5 py-1 rounded-full font-bold transition-all active:scale-95', record.studentFeedback === 'received' ? 'bg-[#07C160] text-white' : 'bg-white text-gray-500 border border-gray-200']"
+                    >
+                      {{ record.studentFeedback === 'received' ? '✓ 已收到' : '收到' }}
+                    </button>
+                    <button
+                      @click="markExerciseFeedback(record.id, 'helpful')"
+                      :class="['text-[10px] px-2.5 py-1 rounded-full font-bold transition-all active:scale-95', record.studentFeedback === 'helpful' ? 'bg-[#FF976A] text-white' : 'bg-white text-gray-500 border border-gray-200']"
+                    >
+                      {{ record.studentFeedback === 'helpful' ? '✓ 有用' : '👍 有用' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Card>
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 固定悬浮底部打卡按钮（仅打卡Tab显示） -->
+    <div v-show="activeTab === 'checkin' && !hasReachedDailyLimit" class="fixed bottom-0 left-0 right-0 z-40 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-[#F7F8FA] via-[#F7F8FA]/95 to-transparent">
+      <Button class="w-full shadow-lg shadow-[#07C160]/30 active:scale-95 transition-transform" size="lg" @click="handleSubmit">
+        完成打卡
+      </Button>
     </div>
   </div>
 </template>

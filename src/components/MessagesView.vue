@@ -1,14 +1,41 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { format } from 'date-fns';
 import { useAppStore } from '../store/app';
-import { MOCK_STUDENTS } from '../mock/data';
 import { NavBar } from './ui';
-import { MessageCircle, Gift, Trophy, Bell, ChevronRight } from 'lucide-vue-next';
+import { MessageCircle, Gift, Trophy, Bell, ChevronRight, Activity, FileText, RefreshCw } from 'lucide-vue-next';
+import { Tabbar as VanTabbar, TabbarItem as VanTabbarItem } from 'vant';
 import { rankStudents } from '../lib/scoring';
 
 const store = useAppStore();
-const isMine = (r: { studentId?: string }) => r.studentId === store.user?.id || !r.studentId;
+const isMine = (r: { studentId?: string }) => r.studentId === store.user?.id;
+
+const isRefreshing = ref(false);
+async function handleRefresh() {
+  if (isRefreshing.value) return;
+  isRefreshing.value = true;
+  try {
+    await store.init();
+  } finally {
+    isRefreshing.value = false;
+  }
+}
+
+// ─── 与首页 dashboard 完全一致的营期解析逻辑（保证 badge 与未读数口径统一） ───
+const availableCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+const activeCampId = computed(() => {
+  if (store.selectedCampId && availableCamps.value.some(c => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  const active = availableCamps.value.find(c => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
+const campDietRecs = computed(() => activeCampId.value ? store.getCampDietRecords(activeCampId.value) : store.dietRecords);
+const campExRecs = computed(() => activeCampId.value ? store.getCampExerciseRecords(activeCampId.value) : store.exerciseRecords);
+const campManualRecs = computed(() => activeCampId.value ? store.getCampManualScoreRecords(activeCampId.value) : store.manualScoreRecords);
+const campWtRecs = computed(() => activeCampId.value ? store.getCampWeightRecords(activeCampId.value) : store.weightRecords);
+const campClaims = computed(() => activeCampId.value ? store.getCampRewardClaims(activeCampId.value) : store.rewardClaims);
+const campTiers = computed(() => activeCampId.value ? store.getCampRewardTiers(activeCampId.value) : store.rewardTiers);
 
 interface MessageItem {
   id: string;
@@ -34,18 +61,18 @@ const commentMessages = computed<MessageItem[]>(() => {
     targetDate: (r.date || '').substring(0, 10),
   });
   return [
-    ...store.dietRecords.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'diet')),
-    ...store.exerciseRecords.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'exercise')),
-    ...store.weightRecords.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'weight')),
+    ...campDietRecs.value.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'diet')),
+    ...campExRecs.value.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'exercise')),
+    ...campWtRecs.value.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'weight')),
   ];
 });
 
-// ---- 奖励消息（领取/发货） ----
-const rewardMessages = computed<MessageItem[]>(() =>
-  store.rewardClaims
+// ---- 奖励消息（领取/发货，仅作动态展示，不计入未读数） ----
+const rewardMessages = computed<MessageItem[]>(() => {
+  return campClaims.value
     .filter((c) => c.studentId === store.user?.id)
     .map((c) => {
-      const tier = store.rewardTiers.find((t) => t.id === c.tierId);
+      const tier = campTiers.value.find((t) => t.id === c.tierId);
       const shipped = c.status === 'shipped';
       const inPerson = c.status === 'in-person';
       const confirmed = c.status === 'confirmed';
@@ -62,16 +89,18 @@ const rewardMessages = computed<MessageItem[]>(() =>
             : inPerson
               ? `${tier?.name || '奖励'} 已线下发放，请向教练确认领取`
               : `恭喜达成「${tier?.name || '奖励'}」，礼品将尽快寄出`,
-        unread: confirmed,
+        unread: false,
         targetView: confirmed ? 'camp-activities' : 'reward',
       };
-    }),
-);
+    });
+});
 
 // ---- 排名变动（与昨日对比） ----
 const rankMessage = computed<MessageItem[]>(() => {
   if (!store.user) return [];
-  const ranked = rankStudents(MOCK_STUDENTS, store.dietRecords, store.exerciseRecords);
+  const campId = activeCampId.value;
+  const campStudents = campId ? store.getStudentsByCamp(campId) : [];
+  const ranked = rankStudents(campStudents, campDietRecs.value, campExRecs.value, campManualRecs.value);
   const me = ranked.find((s) => s.studentId === store.user!.id);
   if (!me) return [];
   if (me.rank === 1) {
@@ -109,16 +138,16 @@ const unreadCount = computed(() => messages.value.filter((m) => m.unread).length
 
 const typeMeta = (type: MessageItem['type']) =>
   type === 'comment'
-    ? { icon: MessageCircle, cls: 'bg-[#07C160]/10 text-[#07C160]' }
+    ? { icon: MessageCircle, cls: 'bg-[#07C160]/10 text-[#07C160]', tag: '营养师批注', tagCls: 'bg-[#07C160]/10 text-[#07C160]' }
     : type === 'reward'
-      ? { icon: Gift, cls: 'bg-orange-50 text-orange-500' }
-      : { icon: Trophy, cls: 'bg-yellow-50 text-yellow-600' };
+      ? { icon: Gift, cls: 'bg-orange-50 text-orange-500', tag: '系统通知', tagCls: 'bg-gray-100 text-gray-500' }
+      : { icon: Trophy, cls: 'bg-yellow-50 text-yellow-600', tag: '系统通知', tagCls: 'bg-gray-100 text-gray-500' };
 
 const openMessage = (m: MessageItem) => {
   if (m.targetDate) {
     store.setSelectedDateStr(m.targetDate);
   }
-  store.setCurrentView(m.targetView as any);
+  store.setCurrentView(m.targetView);
 };
 
 // 日期友好显示
@@ -134,10 +163,20 @@ const fmtDate = (d: string) => {
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-8">
-    <NavBar title="消息中心" :on-back="store.goBack" />
+  <div class="flex min-h-full flex-col bg-[#F7F8FA] pb-28">
+    <NavBar title="消息中心" :on-back="store.goBack">
+      <template #right>
+        <button
+          @click="handleRefresh"
+          :disabled="isRefreshing"
+          class="p-2 rounded-full hover:bg-gray-100 active:scale-90 transition-all disabled:opacity-50"
+        >
+          <RefreshCw class="w-4 h-4 text-[#07C160]" :class="{ 'animate-spin': isRefreshing }" />
+        </button>
+      </template>
+    </NavBar>
 
-    <div class="p-5 space-y-3">
+    <div class="p-4 space-y-3">
       <!-- 顶部摘要 -->
       <div v-if="unreadCount > 0" class="flex items-center gap-2 px-4 py-3 bg-[#07C160]/5 border border-[#07C160]/15 rounded-xl">
         <Bell class="w-4 h-4 text-[#07C160] shrink-0" />
@@ -158,13 +197,14 @@ const fmtDate = (d: string) => {
         v-for="m in messages"
         :key="m.id"
         @click="openMessage(m)"
-        class="w-full text-left bg-white rounded-2xl p-4 border border-gray-100 flex items-start gap-3 active:scale-[0.99] transition-transform"
+        :class="['w-full text-left bg-white rounded-2xl p-4 flex items-start gap-3 active:scale-[0.98] transition-all shadow-sm hover:shadow-md', m.type === 'comment' ? 'border border-[#07C160]/15' : 'border border-gray-100']"
       >
         <div :class="['w-10 h-10 rounded-xl flex items-center justify-center shrink-0', typeMeta(m.type).cls]">
           <component :is="typeMeta(m.type).icon" class="w-5 h-5" />
         </div>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 mb-0.5">
+          <div class="flex items-center gap-1.5 mb-0.5">
+            <span :class="['text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0', typeMeta(m.type).tagCls]">{{ typeMeta(m.type).tag }}</span>
             <span class="text-sm font-bold text-gray-900 truncate">{{ m.title }}</span>
             <span v-if="m.unread" class="w-2 h-2 rounded-full bg-red-500 shrink-0"></span>
           </div>
@@ -174,5 +214,25 @@ const fmtDate = (d: string) => {
         <ChevronRight class="w-4 h-4 text-gray-300 shrink-0 mt-1" />
       </button>
     </div>
+
+    <!-- Bottom Nav -->
+    <VanTabbar class="custom-tabbar" :model-value="2">
+      <VanTabbarItem @click="store.setCurrentView('dashboard')">
+        <template #icon><Activity class="h-6 w-6" /></template>
+        首页
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('activity-hub')">
+        <template #icon><Gift class="h-6 w-6" /></template>
+        活动
+      </VanTabbarItem>
+      <VanTabbarItem>
+        <template #icon><Bell class="h-6 w-6" /></template>
+        消息
+      </VanTabbarItem>
+      <VanTabbarItem @click="store.setCurrentView('health-profile')">
+        <template #icon><FileText class="h-6 w-6" /></template>
+        档案
+      </VanTabbarItem>
+    </VanTabbar>
   </div>
 </template>

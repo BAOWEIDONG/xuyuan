@@ -73,6 +73,8 @@ const handleMediaClick = (item: { url: string; type: 'video' | 'image' }) => {
             class="w-full h-full object-cover"
             preload="metadata"
             muted
+            playsinline
+            webkit-playsinline
           />
           <!-- Image -->
           <img

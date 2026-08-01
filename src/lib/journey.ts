@@ -14,7 +14,7 @@
  *    计算逻辑应与本文件保持一致
  * ============================================================================
  */
-import { format, addDays, differenceInCalendarDays, startOfWeek, endOfWeek, isWithinInterval, parseISO } from 'date-fns';
+import { format, addDays, differenceInCalendarDays, startOfWeek, endOfWeek } from 'date-fns';
 import type { DietRecord, ExerciseRecord, WeightRecord } from '../types';
 import type { WeightTrend } from '../types';
 import { isDayComplete, calculateStreak } from './streak';
@@ -385,16 +385,18 @@ export function computeExerciseBreakdown(
  *
  *  【公式】
  *    score = 规律分×30% + 均衡分×40% + 评分分×30%
- *    无营养师评分时，均衡分和评分分均为 0，指数自然偏低，反映"待评估"
+ *    动态加权：某项指标当周无数据时，其权重按比例分配给已有指标，
+ *    避免"未评分=不及格"
  *
  *  【三个分解指标】
  *    1. 规律分 regularityRate = 三餐齐全天数 ÷ 该周有任意饮食打卡的天数
  *       - "三餐齐全" = 同一天存在 breakfast + lunch + dinner 三条记录
  *       - 分母只算有打卡的天，不惩罚完全没打卡的日子
  *
- *    2. 均衡分 balanceRate = 三项全选的记录数 ÷ 营养师已评分的记录数
- *       - "三项全选" = hasStaple && hasProtein && hasVegetable 均为 true
- *       - 仅统计 dietitianScore != null 的记录（营养师已评分才算"已评定"）
+ *    2. 均衡分 balanceRate = 均衡记录数 ÷ 有结构标签的记录数
+ *       - "均衡" = hasStaple / hasProtein / hasVegetable 三项中至少包含2项
+ *       - 减脂餐可能不吃主食，只要蛋白+蔬菜也算均衡
+ *       - "有结构标签" = hasStaple / hasProtein / hasVegetable 至少一项不为 undefined
  *       - 学员提交时 hasStaple 等默认为 false，但不计入统计
  *       - 数据来源：营养师在批注时设定餐次结构标签
  *

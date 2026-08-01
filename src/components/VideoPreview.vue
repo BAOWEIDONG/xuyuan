@@ -35,6 +35,8 @@ onUnmounted(() => {
       class="max-w-[95vw] max-h-[90vh] object-contain"
       controls
       autoplay
+      playsinline
+      webkit-playsinline
       @click.stop
     />
   </div>

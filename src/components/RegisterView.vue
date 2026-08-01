@@ -60,6 +60,7 @@ const handleSubmit = () => {
           <label class="text-sm font-medium text-gray-700">年龄 <span class="text-red-500">*</span></label>
           <Input
             type="number"
+            inputmode="numeric"
             placeholder="请输入年龄"
             :value="formData.age"
             @input="formData.age = ($event.target as HTMLInputElement).value"
@@ -70,6 +71,7 @@ const handleSubmit = () => {
           <label class="text-sm font-medium text-gray-700">身高 (cm) <span class="text-red-500">*</span></label>
           <Input
             type="number"
+            inputmode="numeric"
             placeholder="请输入身高"
             :value="formData.height"
             @input="formData.height = ($event.target as HTMLInputElement).value"
