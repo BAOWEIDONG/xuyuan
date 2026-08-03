@@ -362,6 +362,7 @@ export const useAppStore = defineStore('app', () => {
     api.updateDietRecord(id, updates).catch(() => {});
   }
 
+
   function addCoachActivity(record: CoachActivityRecord) {
     coachActivities.value.push(record);
     api.createCoachActivity(record).catch(() => {});
@@ -669,6 +670,9 @@ export const useAppStore = defineStore('app', () => {
   function getCampRewardClaims(campId: string) {
     return rewardClaims.value.filter((c) => !c.campId || c.campId === campId);
   }
+  function getCampCoachActivities(campId: string) {
+    return coachActivities.value.filter((a) => !a.campIds || a.campIds.length === 0 || a.campIds.includes(campId));
+  }
 
   /** 获取指定营期的学员列表（从 accounts 中筛选 campIds 包含该营期且 active 的学员） */
   function getStudentsByCamp(campId: string): { id: string; name: string; phone: string; gender?: 'male' | 'female'; age?: number }[] {
@@ -725,6 +729,7 @@ export const useAppStore = defineStore('app', () => {
     exerciseRecords,
     dietRecords,
     coachActivities,
+    getCampCoachActivities,
     selectedStudentId,
     selectedDateStr,
     rankMode,
