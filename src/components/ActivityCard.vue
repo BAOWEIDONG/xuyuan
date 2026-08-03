@@ -7,6 +7,12 @@ import type { CoachActivityRecord } from '../types';
 const props = defineProps<{ activity: CoachActivityRecord }>();
 const store = useAppStore();
 
+const campLabels = computed(() => {
+  const ids = props.activity.campIds;
+  if (!ids || ids.length === 0) return [] as string[];
+  return ids.map(id => store.camps.find(c => c.id === id)?.name || id).filter(Boolean);
+});
+
 const currentIndex = ref(0);
 const scrollRef = ref<HTMLDivElement | null>(null);
 const expanded = ref(false);
@@ -108,7 +114,13 @@ const handleMediaClick = (item: { url: string; type: 'video' | 'image' }) => {
 
     <!-- Content -->
     <div class="p-4">
-      <h3 class="font-bold text-gray-900 text-lg mb-2">{{ activity.title }}</h3>
+      <div class="flex items-center gap-2 mb-2">
+        <h3 class="font-bold text-gray-900 text-lg">{{ activity.title }}</h3>
+        <template v-if="campLabels.length > 0">
+          <span v-for="label in campLabels" :key="label" class="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#07C160]/10 text-[#07C160] shrink-0">{{ label }}</span>
+        </template>
+        <span v-else class="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-500 shrink-0">全部营期</span>
+      </div>
       <p :class="['text-sm text-gray-600 mb-2 whitespace-pre-wrap', isLongText && !expanded ? 'line-clamp-3' : '']">{{ activity.description }}</p>
       <button
         v-if="isLongText"
