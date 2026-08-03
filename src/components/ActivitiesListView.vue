@@ -5,8 +5,19 @@ import { NavBar, Card } from './ui';
 import ActivityCard from './ActivityCard.vue';
 
 const store = useAppStore();
+
+// 学员端：按营期过滤活动（全部营期的 + 当前营期的）
+const availableCamps = computed(() => store.user ? store.getStudentCamps(store.user.id) : []);
+const activeCampId = computed(() => {
+  if (store.selectedCampId && availableCamps.value.some(c => c.id === store.selectedCampId)) {
+    return store.selectedCampId;
+  }
+  const active = availableCamps.value.find(c => c.status === 'active');
+  return active?.id || availableCamps.value[0]?.id || null;
+});
 const sortedActivities = computed(() =>
-  [...store.coachActivities].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
+  [...(activeCampId.value ? store.getCampCoachActivities(activeCampId.value) : store.coachActivities)]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
 );
 </script>
 
