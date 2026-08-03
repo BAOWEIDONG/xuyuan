@@ -127,7 +127,7 @@ const handleVideoSelect = async (e: Event) => {
   try {
     const urls = await Promise.all(
       toUpload.map(async (file, idx) => {
-        const compressed = await compressVideo(file, 50, (p) => {
+        const compressed = await compressVideo(file, 15, (p) => {
           const base = idx / toUpload.length;
           const span = 1 / toUpload.length;
           compressProgress.value = Math.round((base + p * span) * 100);
