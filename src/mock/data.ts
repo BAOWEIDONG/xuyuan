@@ -407,6 +407,7 @@ export const MOCK_COACH_ACTIVITIES: CoachActivityRecord[] = [
     ],
     coachName: '王教练',
     date: dateStr(-1),
+    campIds: ['camp1'],
   },
   {
     id: 'a3',
