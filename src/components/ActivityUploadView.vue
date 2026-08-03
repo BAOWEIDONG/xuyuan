@@ -1,12 +1,29 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { format } from 'date-fns';
 import { useAppStore } from '../store/app';
 import { uploadFile } from '../lib/api';
 import { NavBar, Card, Button, Input } from './ui';
-import { Camera, Video, X } from 'lucide-vue-next';
+import { Popup as VanPopup } from 'vant';
+import { Camera, Video, X, ChevronDown, Check } from 'lucide-vue-next';
 
 const store = useAppStore();
+
+const camps = computed(() => store.camps.filter(c => c.status === 'active'));
+const selectedCampIds = ref<string[]>([]);  // 空数组 = 全部营期
+const showCampPicker = ref(false);
+
+const campDisplayName = computed(() => {
+  if (selectedCampIds.value.length === 0) return '全部营期';
+  if (selectedCampIds.value.length === camps.value.length) return '全部营期';
+  return selectedCampIds.value.map(id => camps.value.find(c => c.id === id)?.name || id).join('、');
+});
+
+const toggleCamp = (id: string) => {
+  const idx = selectedCampIds.value.indexOf(id);
+  if (idx >= 0) selectedCampIds.value.splice(idx, 1);
+  else selectedCampIds.value.push(id);
+};
 
 const formData = reactive({ title: '', description: '' });
 const imageFiles = ref<string[]>([]);
@@ -59,6 +76,7 @@ const handleSubmit = () => {
     videoUrls: mediaType.value === 'video' ? videoUrls.value : [],
     coachName: store.user?.name || '教练',
     date: format(new Date(), 'yyyy-MM-dd'),
+    campIds: selectedCampIds.value.length > 0 ? [...selectedCampIds.value] : undefined,
   });
   store.setCurrentView('coach-dashboard');
 };
@@ -71,6 +89,20 @@ const handleSubmit = () => {
     <div class="p-4 space-y-4">
       <Card>
         <div class="space-y-4">
+          <!-- 营期选择 -->
+          <div>
+            <label class="text-sm font-medium text-gray-700 block mb-2">发布范围 <span class="text-red-500">*</span></label>
+            <button
+              @click="showCampPicker = true"
+              class="w-full px-3 py-2.5 border border-gray-200 rounded-xl flex items-center justify-between text-sm bg-white hover:border-[#07C160] transition-colors"
+            >
+              <span :class="selectedCampIds.length > 0 ? 'text-gray-900' : 'text-gray-400'">
+                {{ campDisplayName }}
+              </span>
+              <ChevronDown class="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+
           <div>
             <label class="text-sm font-medium text-gray-700 block mb-2">活动多媒体 <span class="text-red-500">*</span></label>
 
@@ -158,5 +190,38 @@ const handleSubmit = () => {
         </Button>
       </div>
     </div>
+
+    <!-- 营期选择弹窗（多选） -->
+    <VanPopup v-model:show="showCampPicker" position="bottom" round class="custom-popup">
+      <div class="p-4">
+        <h3 class="text-base font-bold text-gray-900 mb-1 text-center">选择发布范围</h3>
+        <p class="text-xs text-gray-400 text-center mb-4">不选 = 全部营期可见，可多选</p>
+        <div class="space-y-2 max-h-60 overflow-y-auto">
+          <button
+            v-for="camp in camps"
+            :key="camp.id"
+            @click="toggleCamp(camp.id)"
+            :class="['w-full px-4 py-3 rounded-xl text-sm font-medium transition-colors text-left flex items-center justify-between', selectedCampIds.includes(camp.id) ? 'bg-[#07C160]/10 text-[#07C160] border border-[#07C160]/30' : 'bg-gray-50 text-gray-700']"
+          >
+            <span>
+              {{ camp.name }}
+              <span class="text-[10px] text-gray-400 ml-1">{{ camp.status === 'active' ? '进行中' : '待开始' }}</span>
+            </span>
+            <span v-if="selectedCampIds.includes(camp.id)" class="w-5 h-5 rounded-full bg-[#07C160] flex items-center justify-center shrink-0">
+              <Check class="w-3 h-3 text-white" />
+            </span>
+            <span v-else class="w-5 h-5 rounded-full border-2 border-gray-300 shrink-0"></span>
+          </button>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button @click="selectedCampIds = []" class="flex-1 py-2.5 rounded-xl text-sm font-medium bg-gray-100 text-gray-600">
+            清空（全部营期）
+          </button>
+          <button @click="showCampPicker = false" class="flex-1 py-2.5 rounded-xl text-sm font-bold bg-[#07C160] text-white">
+            确定{{ selectedCampIds.length > 0 ? `(${selectedCampIds.length})` : '' }}
+          </button>
+        </div>
+      </div>
+    </VanPopup>
   </div>
 </template>
