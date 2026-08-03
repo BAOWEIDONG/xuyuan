@@ -9,7 +9,15 @@ import { Camera, Video, X, ChevronDown, Check } from 'lucide-vue-next';
 
 const store = useAppStore();
 
-const camps = computed(() => store.camps.filter(c => c.status === 'active'));
+// 教练可发布的营期：来源于营养师端账号管理分配的 campIds
+  // 无 campIds = 负责全部营期
+  const coachCamps = computed(() => {
+    const coachAccount = store.accounts.find(a => a.id === store.user?.id || a.phone === store.user?.phone);
+    const ids = coachAccount?.campIds;
+    if (!ids || ids.length === 0) return store.camps.filter(c => c.status === 'active');
+    return store.camps.filter(c => ids.includes(c.id));
+  });
+  const camps = coachCamps;
 const selectedCampIds = ref<string[]>([]);  // 空数组 = 全部营期
 const showCampPicker = ref(false);
 
