@@ -16,11 +16,11 @@ const EXERCISE_TYPES = ['跑步', '游泳', '力量训练', '瑜伽', '快走', 
 
 /** 主观强度配置 — 颜色从冷到暖，描述参考 RPE (Rating of Perceived Exertion) 自感用力程度量表 */
 const INTENSITY_CONFIG = [
-  { level: 1, label: '很轻松',   color: '#3B82F6', lightBg: '#EFF6FF', description: '散步般轻松，能正常对话和唱歌，几乎不喘', example: '如：慢走、拉伸放松' },
-  { level: 2, label: '轻松',     color: '#10B981', lightBg: '#ECFDF5', description: '轻微出汗，可以正常对话，呼吸略微加快',     example: '如：快走、轻松骑行' },
-  { level: 3, label: '适中',     color: '#F59E0B', lightBg: '#FFFBEB', description: '微喘但能说话，适合日常锻炼的黄金区间',     example: '如：慢跑、游泳' },
-  { level: 4, label: '较累',     color: '#F97316', lightBg: '#FFF7ED', description: '明显喘气，只能简短交流，肌肉有酸胀感',     example: '如：快跑、力量训练' },
-  { level: 5, label: '非常吃力', color: '#EF4444', lightBg: '#FEF2F2', description: '大汗淋漓，无法说话，接近体能极限',         example: '如：冲刺跑、HIIT' },
+  { level: 1, label: '很轻松',   color: '#3B82F6', lightBg: '#EFF6FF', description: '散步般轻松，能正常对话和唱歌，几乎不喘',   example: '如：慢走、拉伸放松' },
+  { level: 2, label: '轻松',     color: '#10B981', lightBg: '#ECFDF5', description: '轻微出汗，可以正常聊天，呼吸略微加快',     example: '如：快走、轻松骑行' },
+  { level: 3, label: '适中',     color: '#F59E0B', lightBg: '#FFFBEB', description: '微喘但能说话，燃脂黄金区间，适合日常锻炼', example: '如：慢跑、游泳、健身操' },
+  { level: 4, label: '较累',     color: '#F97316', lightBg: '#FFF7ED', description: '呼吸明显加快，能说短句，身体发热出汗',     example: '如：快跑、力量训练、爬楼梯' },
+  { level: 5, label: '非常吃力', color: '#EF4444', lightBg: '#FEF2F2', description: '呼吸急促只能说几个字，大汗淋漓，短暂即可', example: '如：跳绳、有氧操、快速爬坡' },
 ] as const;
 
 type ActivityItem = {
@@ -186,6 +186,17 @@ const handleIntensityClick = (activityId: string, level: number) => {
     swipeJustEnded.value = false;
     return;
   }
+  updateActivity(activityId, 'intensity', level);
+  triggerBurst(activityId, level);
+};
+
+// 滑块点击：根据点击位置计算强度等级
+const handleSliderClick = (e: MouseEvent, activityId: string) => {
+  if (swipeJustEnded.value) {
+    swipeJustEnded.value = false;
+    return;
+  }
+  const level = getLevelFromTouchX(e.clientX, e.currentTarget as HTMLElement);
   updateActivity(activityId, 'intensity', level);
   triggerBurst(activityId, level);
 };
@@ -448,42 +459,70 @@ const handleSubmit = () => {
             <span class="text-xs text-gray-400">RPE 自感用力程度</span>
           </div>
 
-          <!-- Intensity buttons with gradient spectrum bar -->
-          <div class="relative px-2 py-3">
-            <div class="absolute left-3 right-3 top-1/2 -translate-y-1/2 h-1.5 rounded-full opacity-10"
-                 style="background: linear-gradient(to right, #3B82F6 0%, #10B981 25%, #F59E0B 50%, #F97316 75%, #EF4444 100%);"></div>
-
+          <!-- Intensity gradient slider -->
+          <div class="relative py-3">
+            <!-- 滑块触摸区 -->
             <div
-              class="relative flex justify-between items-center touch-pan-y"
+              class="relative mx-3 py-3 cursor-pointer touch-pan-y"
+              @click="handleSliderClick($event, activity.id)"
               @touchstart="handleTouchStart"
               @touchmove="(e) => handleTouchMove(e, activity.id)"
               @touchend="() => handleTouchEnd(activity.id)"
             >
-              <button
-                v-for="config in INTENSITY_CONFIG"
-                :key="config.level"
-                @click="handleIntensityClick(activity.id, config.level)"
-                :class="['relative flex flex-col items-center justify-center w-12 h-12 rounded-full transition-all duration-300 active:scale-90', activity.intensity === config.level ? 'scale-110' : 'bg-gray-100 hover:bg-gray-200']"
-                :style="activity.intensity === config.level ? { backgroundColor: config.color, color: 'white', boxShadow: `0 4px 14px ${config.color}50` } : { color: '#9CA3AF' }"
+              <!-- 渐变轨道 -->
+              <div
+                class="relative h-2.5 rounded-full"
+                style="background: linear-gradient(to right, #3B82F6 0%, #10B981 25%, #F59E0B 50%, #F97316 75%, #EF4444 100%);"
               >
-                <span class="font-bold text-sm relative z-10">{{ config.level }}</span>
-                <span
-                  v-if="burstKey === `${activity.id}-${config.level}`"
-                  :key="`${burstId}-r1`"
-                  class="absolute inset-0 rounded-full pointer-events-none"
-                  :style="{ animation: `burst-${config.level} 0.6s ease-out forwards`, backgroundColor: config.color }"
-                ></span>
-                <span
-                  v-if="burstKey === `${activity.id}-${config.level}` && config.level >= 4"
-                  :key="`${burstId}-r2`"
-                  class="absolute inset-0 rounded-full pointer-events-none"
-                  :style="{ animation: `burst-${config.level}-outer 0.6s ease-out 0.12s forwards`, backgroundColor: config.color }"
-                ></span>
-              </button>
-            </div>
-            <p class="text-center text-[10px] text-gray-400 mt-1">点击或左右滑动选择强度</p>
-          </div>
+                <!-- 刻度点 -->
+                <div
+                  v-for="config in INTENSITY_CONFIG"
+                  :key="'dot-' + config.level"
+                  class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white/50 pointer-events-none"
+                  :style="{ left: `${(config.level - 1) / 4 * 100}%` }"
+                ></div>
 
+                <!-- 滑块 thumb -->
+                <div
+                  class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full border-[3px] border-white transition-all duration-300 pointer-events-none flex items-center justify-center z-10"
+                  :style="{
+                    left: `${(activity.intensity - 1) / 4 * 100}%`,
+                    backgroundColor: getIntensityConfig(activity.intensity).color,
+                    boxShadow: `0 2px 12px ${getIntensityConfig(activity.intensity).color}60`
+                  }"
+                >
+                  <span class="text-[10px] font-black text-white">{{ activity.intensity }}</span>
+                  <!-- 爆裂动画 -->
+                  <span
+                    v-if="burstKey === `${activity.id}-${activity.intensity}`"
+                    :key="`${burstId}-r1`"
+                    class="absolute inset-0 rounded-full pointer-events-none"
+                    :style="{ animation: `burst-${activity.intensity} 0.6s ease-out forwards`, backgroundColor: getIntensityConfig(activity.intensity).color }"
+                  ></span>
+                  <span
+                    v-if="burstKey === `${activity.id}-${activity.intensity}` && activity.intensity >= 4"
+                    :key="`${burstId}-r2`"
+                    class="absolute inset-0 rounded-full pointer-events-none"
+                    :style="{ animation: `burst-${activity.intensity}-outer 0.6s ease-out 0.12s forwards`, backgroundColor: getIntensityConfig(activity.intensity).color }"
+                  ></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 强度标签 -->
+            <div class="flex justify-between mx-3 mt-1">
+              <span
+                v-for="config in INTENSITY_CONFIG"
+                :key="'label-' + config.level"
+                :class="['text-[10px] font-bold transition-colors duration-200', activity.intensity === config.level ? '' : 'text-gray-400']"
+                :style="activity.intensity === config.level ? { color: config.color } : {}"
+              >
+                {{ config.label }}
+              </span>
+            </div>
+
+            <p class="text-center text-[10px] text-gray-400 mt-1">点击或滑动选择强度</p>
+          </div>
           <!-- Intensity description card -->
           <transition name="desc-fade" mode="out-in">
             <div
