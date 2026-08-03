@@ -151,7 +151,7 @@ const handleEditAccount = (account?: Account) => {
         phone: '',
         name: '',
         role: activeTab.value,
-        campIds: activeTab.value === 'student' ? [] : undefined,
+        campIds: (activeTab.value === 'student' || activeTab.value === 'coach') ? [] : undefined,
         active: true,
       };
   accountFormError.value = '';
@@ -188,7 +188,7 @@ const saveAccount = () => {
     accountFormError.value = '请输入正确的手机号';
     return;
   }
-  if (role === 'student' && (!campIds || campIds.length === 0) && activeTab.value === 'student') {
+  if (role === 'student' && (!campIds || campIds.length === 0)) {
     accountFormError.value = '学员至少关联一个营期';
     return;
   }
@@ -234,7 +234,7 @@ const saveAccount = () => {
       phone: phone.trim(),
       name: name?.trim() || '',
       role,
-      campIds: role === 'student' ? campIds : undefined,
+      campIds: (role === 'student' || role === 'coach') ? campIds : undefined,
       active,
     });
   } else {
@@ -243,7 +243,7 @@ const saveAccount = () => {
       phone: phone.trim(),
       name: name?.trim() || '',
       role: role as Role,
-      campIds: role === 'student' ? campIds : undefined,
+      campIds: (role === 'student' || role === 'coach') ? campIds : undefined,
       active: active ?? true,
       createdAt,
     });
@@ -417,7 +417,7 @@ const switchTab = (role: Role) => {
                   <Phone class="w-3 h-3" /> {{ maskPhone(account.phone) }}
                 </div>
                 <!-- 学员营期标签 -->
-                <div v-if="account.role === 'student' && account.campIds && account.campIds.length > 0" class="flex flex-wrap gap-1">
+                <div v-if="(account.role === 'student' || account.role === 'coach') && account.campIds && account.campIds.length > 0" class="flex flex-wrap gap-1">
                   <span
                     v-for="campId in account.campIds"
                     :key="campId"
@@ -559,9 +559,9 @@ const switchTab = (role: Role) => {
               </button>
             </div>
           </div>
-          <!-- 学员营期关联（仅学员角色） -->
-          <div v-if="editingAccount.role === 'student'">
-            <label class="text-sm font-medium text-gray-700 block mb-2">所属营期 <span class="text-red-500">*</span></label>
+          <!-- 营期关联（学员/教练） -->
+          <div v-if="editingAccount.role === 'student' || editingAccount.role === 'coach'">
+            <label class="text-sm font-medium text-gray-700 block mb-2">{{ editingAccount.role === 'coach' ? '负责营期' : '所属营期' }} <span v-if="editingAccount.role === 'student'" class="text-red-500">*</span></label>
             <div v-if="store.camps.length === 0" class="text-xs text-orange-500 bg-orange-50 rounded-lg p-2.5">
               暂无营期，请先在上方新增营期
             </div>
@@ -591,7 +591,7 @@ const switchTab = (role: Role) => {
                 {{ camp.name }}
               </button>
             </div>
-            <div class="text-[10px] text-gray-400 mt-1.5">可多选，同一人可参与多期；每期排名相互独立</div>
+            <div class="text-[10px] text-gray-400 mt-1.5">{{ editingAccount.role === 'coach' ? '可多选，不选则负责全部营期；发布活动时仅可选负责的营期' : '可多选，同一人可参与多期；每期排名相互独立' }}</div>
           </div>
           <!-- 启用状态 -->
           <div class="flex items-center justify-between bg-gray-50 rounded-lg p-3">
