@@ -4,7 +4,7 @@
  * 原理：将视频逐帧绘制到 Canvas，通过 MediaRecorder 以较低码率重新录制
  */
 
-const TARGET_SIZE_MB = 50; // 目标压缩大小上限
+const TARGET_SIZE_MB = 15; // 目标压缩大小上限
 const MAX_WIDTH = 1280; // 最大宽度（超过则等比缩小）
 const MAX_FPS = 30; // 录制帧率
 
