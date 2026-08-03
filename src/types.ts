@@ -144,6 +144,8 @@ export interface CoachActivityRecord {
   coachName: string;
   date: string;
   videoUrls?: string[];
+  /** 所属营期 ID 列表（空/不填 = 全部营期可见） */
+  campIds?: string[];
 }
 
 // Reward types
