@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onUnmounted } from 'vue';
 import { format } from 'date-fns';
 import { useAppStore } from '../store/app';
 import { NavBar } from './ui';
@@ -10,12 +10,78 @@ import { rankStudents } from '../lib/scoring';
 const store = useAppStore();
 const isMine = (r: { studentId?: string }) => r.studentId === store.user?.id;
 
+// ─── 刷新 toast ───
 const isRefreshing = ref(false);
+const toastText = ref('');
+const toastVisible = ref(false);
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+function showToast(text: string) {
+  toastText.value = text;
+  toastVisible.value = true;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastVisible.value = false; }, 2500);
+}
+
+// ─── 消息已读追踪：奖励状态变更 & 排名变动 ───
+// localStorage 结构: { [userId]: { rewards: { claimId: status }, ranks: { campId: rank } } }
+interface SeenState {
+  rewards: Record<string, string>;
+  ranks: Record<string, number>;
+}
+const MSG_SEEN_KEY = 'camp_msg_seen';
+
+function loadSeenState(): SeenState {
+  if (!store.user) return { rewards: {}, ranks: {} };
+  try {
+    const raw = localStorage.getItem(MSG_SEEN_KEY);
+    if (!raw) return { rewards: {}, ranks: {} };
+    const all = JSON.parse(raw);
+    return all[store.user.id] || { rewards: {}, ranks: {} };
+  } catch {
+    return { rewards: {}, ranks: {} };
+  }
+}
+
+// 同步初始化，保证首次渲染时 computed 能拿到正确的 seenState
+const seenState = ref<SeenState>(loadSeenState());
+
+function saveSeenState() {
+  if (!store.user) return;
+  const uid = store.user.id;
+  const campKey = activeCampId.value || 'default';
+  const rewards: Record<string, string> = {};
+  for (const c of store.rewardClaims.filter(c => c.studentId === uid)) {
+    rewards[c.id] = c.status;
+  }
+  let rank = 0;
+  const cs = campKey !== 'default' ? store.getStudentsByCamp(campKey) : [];
+  if (cs.length > 0) {
+    const ranked = rankStudents(cs, campDietRecs.value, campExRecs.value, campManualRecs.value);
+    const me = ranked.find(s => s.studentId === uid);
+    if (me) rank = me.rank;
+  }
+  try {
+    const raw = localStorage.getItem(MSG_SEEN_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    const prev = all[uid] || { rewards: {}, ranks: {} };
+    all[uid] = { rewards, ranks: { ...prev.ranks, [campKey]: rank } };
+    localStorage.setItem(MSG_SEEN_KEY, JSON.stringify(all));
+  } catch { /* ignore */ }
+}
+
+onUnmounted(() => saveSeenState());
+
 async function handleRefresh() {
   if (isRefreshing.value) return;
   isRefreshing.value = true;
   try {
+    const oldUnread = unreadCount.value;
     await store.init();
+    const newUnread = unreadCount.value;
+    const diff = newUnread - oldUnread;
+    showToast(diff > 0 ? `已刷新，发现 ${diff} 条新消息` : '已刷新，暂无新消息');
+  } catch {
+    showToast('刷新失败，请稍后重试');
   } finally {
     isRefreshing.value = false;
   }
@@ -89,7 +155,7 @@ const rewardMessages = computed<MessageItem[]>(() => {
             : inPerson
               ? `${tier?.name || '奖励'} 已线下发放，请向教练确认领取`
               : `恭喜达成「${tier?.name || '奖励'}」，礼品将尽快寄出`,
-        unread: false,
+        unread: seenState.value.rewards[c.id] !== undefined && seenState.value.rewards[c.id] !== c.status,
         targetView: confirmed ? 'camp-activities' : 'reward',
       };
     });
@@ -111,7 +177,7 @@ const rankMessage = computed<MessageItem[]>(() => {
       date: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
       title: '你现在是第 1 名',
       body: `总分 ${me.totalScore} 分，继续保持，第二名距你 ${Math.max(0, me.totalScore - secondScore)} 分`,
-      unread: false,
+      unread: seenState.value.ranks[activeCampId.value || 'default'] !== undefined && seenState.value.ranks[activeCampId.value || 'default'] !== me.rank,
       targetView: 'ranking',
     }];
   }
@@ -123,7 +189,7 @@ const rankMessage = computed<MessageItem[]>(() => {
     date: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
     title: `当前排名第 ${me.rank} 位`,
     body: `距前一名还差 ${ahead.totalScore - me.totalScore} 分，今天完成打卡就能缩小差距`,
-    unread: false,
+    unread: seenState.value.ranks[activeCampId.value || 'default'] !== undefined && seenState.value.ranks[activeCampId.value || 'default'] !== me.rank,
     targetView: 'ranking',
   }];
 });
@@ -175,6 +241,17 @@ const fmtDate = (d: string) => {
         </button>
       </template>
     </NavBar>
+
+    <transition
+      enter-active-class="transition-all duration-300"
+      enter-from-class="opacity-0 -translate-y-2"
+      leave-active-class="transition-all duration-300"
+      leave-to-class="opacity-0 -translate-y-2"
+    >
+      <div v-if="toastVisible" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-black/75 text-white text-xs font-medium rounded-full shadow-lg whitespace-nowrap">
+        {{ toastText }}
+      </div>
+    </transition>
 
     <div class="p-4 space-y-3">
       <!-- 顶部摘要 -->
