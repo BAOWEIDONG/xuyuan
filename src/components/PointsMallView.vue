@@ -203,12 +203,6 @@ const unreadCount = computed(() => {
         </div>
       </div>
 
-      <!-- 免责声明 -->
-      <div class="pt-6 pb-2">
-        <p class="text-[10px] text-gray-400 leading-relaxed text-center px-2">
-          本商城所列商品均为第三方采购的赠品，非平台自有产品。如遇质量问题、售后维修等事宜，请直接联系商品生产厂家或品牌方处理，平台仅提供积分兑换赠礼服务，不承担商品质量担保责任。
-        </p>
-      </div>
     </div>
 
     <!-- 兑换确认弹窗（居中） -->
