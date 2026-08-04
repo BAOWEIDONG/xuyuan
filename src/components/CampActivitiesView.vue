@@ -47,7 +47,7 @@ const unreadCount = computed(() => {
   if (store.user?.role !== 'student') return 0;
   const id = store.user.id;
   const diet = campDietRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
-  const ex = campExerciseRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const ex = campExerciseRecords.value.filter((r) => r.studentId === id && r.coachComment && !r.commentRead);
   const wt = campWeightRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
   return diet.length + ex.length + wt.length;
 });
