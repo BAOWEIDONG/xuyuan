@@ -457,6 +457,13 @@ const unreadCount = computed(() => {
         <p class="text-sm text-gray-400">活动正在筹备中</p>
         <p class="text-[11px] text-gray-400 mt-1">营养师正在配置活动内容，敬请期待</p>
       </div>
+
+      <!-- 免责声明 -->
+      <div class="pt-2 pb-1">
+        <p class="text-[10px] text-gray-400 leading-relaxed text-center px-2">
+          本平台所列活动奖品及积分商城商品均为第三方采购的赠品，非平台自有产品。如遇质量问题、售后维修等事宜，请直接联系商品生产厂家或品牌方处理，平台仅提供积分兑换及活动赠礼服务，不承担商品质量担保责任。
+        </p>
+      </div>
     </div>
 
     <!-- Bottom Nav -->
