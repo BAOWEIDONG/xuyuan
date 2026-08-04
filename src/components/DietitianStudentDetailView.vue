@@ -33,10 +33,14 @@ const selectedCamp = computed(() => studentCamps.value.find((c) => c.id === sele
 // 当学员切换时，自动选择其当前营期（优先使用 store.selectedCampId，确保与上游一致）
 watch(() => store.selectedStudentId, (id) => {
   if (id) {
-    // 如果 store 已有选中的营期且该学员在该营期，直接用
     if (store.selectedCampId && studentCamps.value.some((c) => c.id === store.selectedCampId)) {
+      // 上游已选营期且学员在该营期 -> 直接继承
       selectedCampId.value = store.selectedCampId;
+    } else if (!store.selectedCampId) {
+      // 全部营期模式 -> 不选具体营期，展示全部数据（与排行榜一致）
+      selectedCampId.value = '';
     } else {
+      // 上游选了营期但学员不在该营期 -> 回退到学员的第一个营期
       const campId = store.getStudentCampId(id);
       if (campId) selectedCampId.value = campId;
     }
@@ -71,13 +75,6 @@ const DIET_TEMPLATES = [
   '主食偏多，建议减半，用粗粮替代',
   '油脂偏多，建议清淡少油',
   '这一餐偏少，记得按时吃饭哦',
-];
-const EXERCISE_TEMPLATES = [
-  '运动强度很好，继续保持！',
-  '时长达标，非常好',
-  '强度偏高，注意循序渐进，避免受伤',
-  '建议延长到 40 分钟以上，燃脂效果更好',
-  '运动后记得拉伸放松',
 ];
 const WEIGHT_TEMPLATES = [
   '体重稳步下降，很棒！',
@@ -159,32 +156,6 @@ const {
   isExpanded: isExerciseExpanded,
 } = useDateGrouping(studentExercises, { defaultExpandAll: true });
 
-// Exercise comment (营养师运动批注+评分)
-const exerciseCommentingId = ref<string | null>(null);
-const exerciseCommentText = ref('');
-const exerciseScore = ref<0 | 1 | 2>(1);
-
-const startExerciseComment = (record: ExerciseRecord) => {
-  exerciseCommentingId.value = record.id;
-  exerciseCommentText.value = record.dietitianComment || '';
-  exerciseScore.value = (record.dietitianScore ?? 1) as 0 | 1 | 2;
-};
-const cancelExerciseComment = () => {
-  exerciseCommentingId.value = null;
-  exerciseCommentText.value = '';
-  exerciseScore.value = 1;
-};
-const handleSaveExerciseComment = (recordId: string) => {
-  store.updateExerciseRecord(recordId, {
-    dietitianComment: exerciseCommentText.value,
-    dietitianScore: exerciseScore.value,
-    dietitianName: store.user?.name || '营养师',
-    dietitianCommentDate: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
-    commentRead: false,
-  });
-  cancelExerciseComment();
-};
-
 // Weight tab - data sourced from camp-filtered weight records
 const studentWeights = computed(() => {
   const id = store.selectedStudentId;
@@ -193,6 +164,13 @@ const studentWeights = computed(() => {
     .filter((r) => r.studentId === id)
     .sort((a, b) => a.date.localeCompare(b.date));
 });
+
+// ─── Weight date grouping (与运动/饮食一致，按天聚类) ───
+const {
+  grouped: groupedWeightRecords,
+  toggleDate: toggleWeightDate,
+  isExpanded: isWeightExpanded,
+} = useDateGrouping(studentWeights, { defaultExpandAll: true });
 
 const weightStats = computed(() => {
   const recs = studentWeights.value;
@@ -204,6 +182,14 @@ const weightStats = computed(() => {
   const changePercent = first !== 0 ? parseFloat(((change / Math.abs(first)) * 100).toFixed(1)) : null;
   return { first, last, change, changePercent, min: Math.min(...weights), max: Math.max(...weights), count: weights.length };
 });
+
+/** 获取当前记录的上一条体重记录的 weight 值（用于"较上次"变化展示） */
+const getPrevWeight = (rec: WeightRecord, group: { date: string; records: WeightRecord[] }): number | null => {
+  const allRecs = studentWeights.value; // 已按时间升序排列
+  const idx = allRecs.findIndex(r => r.id === rec.id);
+  if (idx <= 0) return null;
+  return allRecs[idx - 1].weight;
+};
 
 // Weight comment (营养师体重批注)
 const weightCommentingId = ref<string | null>(null);
@@ -884,83 +870,35 @@ function handleDeleteManualScore(id: string) {
               </div>
             </div>
 
-            <!-- 运动批注区域 -->
+            <!-- 运动批注区域（只读，批注由教练操作） -->
             <div class="p-4 bg-gray-50/50">
-              <div v-if="exerciseCommentingId === record.id" class="space-y-3">
-                <!-- 运动打分 -->
-                <div class="flex items-center gap-3">
-                  <label class="text-sm text-gray-700 font-medium">运动评分:</label>
-                  <div class="flex items-center bg-gray-100 rounded-lg p-1">
-                    <button
-                      :class="['px-3 py-1 rounded-md text-xs font-bold transition-colors', exerciseScore === 2 ? 'bg-[#07C160] text-white shadow-sm' : 'text-gray-500 hover:text-gray-900']"
-                      @click="exerciseScore = 2"
-                    >
-                      +2 (到位)
-                    </button>
-                    <button
-                      :class="['px-3 py-1 rounded-md text-xs font-bold transition-colors', exerciseScore === 1 ? 'bg-[#FF976A] text-white shadow-sm' : 'text-gray-500 hover:text-gray-900']"
-                      @click="exerciseScore = 1"
-                    >
-                      +1 (尚可)
-                    </button>
-                    <button
-                      :class="['px-3 py-1 rounded-md text-xs font-bold transition-colors', exerciseScore === 0 ? 'bg-gray-400 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900']"
-                      @click="exerciseScore = 0"
-                    >
-                      0 (未达标)
-                    </button>
-                  </div>
-                </div>
-                <!-- 快捷回复模板 -->
-                <div class="flex flex-wrap gap-1.5">
-                  <button
-                    v-for="tpl in EXERCISE_TEMPLATES"
-                    :key="tpl"
-                    @click="exerciseCommentText = exerciseCommentText ? exerciseCommentText + '，' + tpl : tpl"
-                    class="text-[10px] px-2 py-1 rounded-full bg-[#07C160]/10 text-[#07C160] font-medium active:scale-95 transition-transform"
-                  >
-                    {{ tpl }}
-                  </button>
-                </div>
-                <textarea
-                  class="w-full rounded-lg border border-gray-200 p-2 text-sm focus:outline-none focus:border-[#07C160]"
-                  rows="3"
-                  placeholder="输入运动批注..."
-                  :value="exerciseCommentText"
-                  @input="exerciseCommentText = ($event.target as HTMLTextAreaElement).value"
-                />
-                <div class="flex justify-end gap-2">
-                  <Button variant="outline" size="sm" @click="cancelExerciseComment">取消</Button>
-                  <Button class="bg-[#07C160] text-white" size="sm" @click="handleSaveExerciseComment(record.id)">保存</Button>
-                </div>
-              </div>
-              <div v-else-if="record.dietitianComment" class="relative group">
+              <div v-if="record.coachComment" class="relative">
                 <div class="flex items-center justify-between mb-1">
                   <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold text-[#07C160]">批注</span>
-                    <span v-if="typeof record.dietitianScore === 'number'" :class="['text-[10px] px-1.5 py-0.5 rounded font-bold', record.dietitianScore >= 2 ? 'bg-green-100 text-green-700' : record.dietitianScore === 1 ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-600']">
-                      +{{ record.dietitianScore }}
+                    <span class="text-xs font-bold text-[#07C160]">教练批注</span>
+                    <span v-if="typeof record.coachScore === 'number'" :class="['text-[10px] px-1.5 py-0.5 rounded font-bold', record.coachScore >= 2 ? 'bg-green-100 text-green-700' : record.coachScore === 1 ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-600']">
+                      +{{ record.coachScore }}
                     </span>
                   </div>
-                  <span v-if="record.dietitianCommentDate" class="text-[10px] text-gray-400">{{ record.dietitianCommentDate }}</span>
+                  <span v-if="record.coachCommentDate" class="text-[10px] text-gray-400">{{ record.coachCommentDate }}</span>
                 </div>
-                <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ record.dietitianComment }}</p>
+                <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ record.coachComment }}</p>
                 <div class="flex items-center gap-2 mt-1">
-                  <button @click="startExerciseComment(record)" class="text-xs text-[#07C160]">编辑</button>
+                  <span v-if="record.coachName" class="text-[10px] text-gray-400">批注人：{{ record.coachName }}</span>
                   <span v-if="record.studentFeedback" class="flex items-center gap-1 text-[10px] font-bold text-[#07C160] bg-[#07C160]/10 px-2 py-0.5 rounded-full">
                     <component :is="record.studentFeedback === 'helpful' ? ThumbsUp : CheckCircle2" class="w-3 h-3" />
                     学员{{ record.studentFeedback === 'helpful' ? '觉得有用' : '已收到' }}
                   </span>
-                  <span v-else-if="record.dietitianComment && record.commentRead" class="flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                  <span v-else-if="record.coachComment && record.commentRead" class="flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
                     <Eye class="w-3 h-3" />
                     学员已读未回
                   </span>
                 </div>
               </div>
-              <button v-else @click="startExerciseComment(record)" class="flex items-center gap-1 text-sm text-[#07C160] font-medium">
-                <MessageCircle class="w-4 h-4" />
-                添加批注
-              </button>
+              <div v-else class="text-xs text-gray-400 flex items-center gap-1">
+                <MessageCircle class="w-3 h-3" />
+                暂无教练批注
+              </div>
             </div>
           </Card>
             </div>
@@ -1020,95 +958,106 @@ function handleDeleteManualScore(id: string) {
               <span class="text-[10px] text-gray-400 ml-auto">共 {{ studentWeights.length }} 条记录</span>
             </div>
             <div class="divide-y divide-gray-50">
-              <div
-                v-for="(rec, idx) in [...studentWeights].reverse().slice(0, 14)"
-                :key="rec.id"
-                :id="`record-${rec.id}`"
-                class="px-4 py-3 transition-all duration-300"
-              >
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full bg-[#07C160]/8 flex items-center justify-center text-[#07C160] shrink-0">
-                      <Scale class="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div class="text-sm font-medium text-gray-900">{{ rec.weight }} kg</div>
-                      <div class="text-[10px] text-gray-400">{{ formatDateTime(rec.date) }}</div>
-                    </div>
-                  </div>
-                  <div v-if="idx < studentWeights.length - 1" class="text-right">
-                    <div :class="['text-xs font-bold', (rec.weight - studentWeights[studentWeights.length - 1 - idx - 1].weight) < 0 ? 'text-[#07C160]' : 'text-orange-500']">
-                      {{ (rec.weight - studentWeights[studentWeights.length - 1 - idx - 1].weight) > 0 ? '+' : '' }}{{ (rec.weight - studentWeights[studentWeights.length - 1 - idx - 1].weight).toFixed(1) }} kg
-                    </div>
-                    <div class="text-[10px] text-gray-400">较上次</div>
-                  </div>
-                  <div v-else class="text-right">
-                    <div class="text-[10px] text-gray-400">首次记录</div>
-                  </div>
+              <div v-for="group in groupedWeightRecords" :key="group.date">
+                <!-- 日期分组标题 -->
+                <div @click="toggleWeightDate(group.date)" class="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none bg-gray-50/50 hover:bg-gray-100/50 transition-colors">
+                  <div class="w-1 h-4 bg-[#1677FF] rounded-full"></div>
+                  <span class="text-sm font-bold text-gray-900">{{ group.label }}</span>
+                  <span class="text-[10px] text-gray-400">{{ group.records.length }} 条</span>
+                  <ChevronDown :class="['ml-auto w-4 h-4 text-gray-400 transition-transform duration-300', !isWeightExpanded(group.date) ? '-rotate-90' : '']" />
                 </div>
+                <div v-show="isWeightExpanded(group.date)">
+                  <div
+                    v-for="(rec, idx) in group.records"
+                    :key="rec.id"
+                    :id="`record-${rec.id}`"
+                    class="px-4 py-3 transition-all duration-300"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-[#07C160]/8 flex items-center justify-center text-[#07C160] shrink-0">
+                          <Scale class="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div class="text-sm font-medium text-gray-900">{{ rec.weight }} kg</div>
+                          <div class="text-[10px] text-gray-400">{{ formatDateTime(rec.date) }}</div>
+                        </div>
+                      </div>
+                      <!-- 较上次变化（同一天内多条记录时也显示） -->
+                      <div v-if="getPrevWeight(rec, group) !== null" class="text-right">
+                        <div :class="['text-xs font-bold', (rec.weight - getPrevWeight(rec, group)!) < 0 ? 'text-[#07C160]' : 'text-orange-500']">
+                          {{ (rec.weight - getPrevWeight(rec, group)!) > 0 ? '+' : '' }}{{ (rec.weight - getPrevWeight(rec, group)!).toFixed(1) }} kg
+                        </div>
+                        <div class="text-[10px] text-gray-400">较上次</div>
+                      </div>
+                      <div v-else class="text-right">
+                        <div class="text-[10px] text-gray-400">首次记录</div>
+                      </div>
+                    </div>
 
-                <!-- 体重打卡照片 -->
-                <div v-if="rec.photos && rec.photos.length > 0" class="mt-2 ml-11 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                  <img
-                    v-for="(url, pIdx) in rec.photos"
-                    :key="pIdx"
-                    :src="url"
-                    alt="体重打卡"
-                    class="h-16 w-16 object-cover rounded-lg shrink-0 border border-gray-100 cursor-pointer"
-                    @click="store.openImagePreview(rec.photos || [], pIdx)"
-                  />
-                </div>
+                    <!-- 体重打卡照片 -->
+                    <div v-if="rec.photos && rec.photos.length > 0" class="mt-2 ml-11 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                      <img
+                        v-for="(url, pIdx) in rec.photos"
+                        :key="pIdx"
+                        :src="url"
+                        alt="体重打卡"
+                        class="h-16 w-16 object-cover rounded-lg shrink-0 border border-gray-100 cursor-pointer"
+                        @click="store.openImagePreview(rec.photos || [], pIdx)"
+                      />
+                    </div>
 
-                <!-- 体重批注区域 -->
-                <div class="mt-2 ml-11">
-                  <div v-if="weightCommentingId === rec.id" class="space-y-2">
-                    <!-- 快捷回复模板 -->
-                    <div class="flex flex-wrap gap-1.5">
-                      <button
-                        v-for="tpl in WEIGHT_TEMPLATES"
-                        :key="tpl"
-                        @click="weightCommentText = weightCommentText ? weightCommentText + '，' + tpl : tpl"
-                        class="text-[10px] px-2 py-1 rounded-full bg-[#07C160]/10 text-[#07C160] font-medium active:scale-95 transition-transform"
-                      >
-                        {{ tpl }}
+                    <!-- 体重批注区域 -->
+                    <div class="mt-2 ml-11">
+                      <div v-if="weightCommentingId === rec.id" class="space-y-2">
+                        <div class="flex flex-wrap gap-1.5">
+                          <button
+                            v-for="tpl in WEIGHT_TEMPLATES"
+                            :key="tpl"
+                            @click="weightCommentText = weightCommentText ? weightCommentText + '，' + tpl : tpl"
+                            class="text-[10px] px-2 py-1 rounded-full bg-[#07C160]/10 text-[#07C160] font-medium active:scale-95 transition-transform"
+                          >
+                            {{ tpl }}
+                          </button>
+                        </div>
+                        <textarea
+                          class="w-full rounded-lg border border-gray-200 p-2 text-sm focus:outline-none focus:border-[#07C160]"
+                          rows="2"
+                          placeholder="输入体重批注..."
+                          :value="weightCommentText"
+                          @input="weightCommentText = ($event.target as HTMLTextAreaElement).value"
+                        />
+                        <div class="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" @click="cancelWeightComment">取消</Button>
+                          <Button class="bg-[#07C160] text-white" size="sm" @click="handleSaveWeightComment(rec.id)">保存</Button>
+                        </div>
+                      </div>
+                      <div v-else-if="rec.dietitianComment" class="relative group">
+                        <div class="flex items-center justify-between mb-1">
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-[#07C160]">批注</span>
+                          </div>
+                          <span v-if="rec.dietitianCommentDate" class="text-[10px] text-gray-400">{{ rec.dietitianCommentDate }}</span>
+                        </div>
+                        <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ rec.dietitianComment }}</p>
+                        <div class="flex items-center gap-2 mt-1">
+                          <button @click="startWeightComment(rec)" class="text-xs text-[#07C160]">编辑</button>
+                          <span v-if="rec.studentFeedback" class="flex items-center gap-1 text-[10px] font-bold text-[#07C160] bg-[#07C160]/10 px-2 py-0.5 rounded-full">
+                            <component :is="rec.studentFeedback === 'helpful' ? ThumbsUp : CheckCircle2" class="w-3 h-3" />
+                            学员{{ rec.studentFeedback === 'helpful' ? '觉得有用' : '已收到' }}
+                          </span>
+                          <span v-else-if="rec.dietitianComment && rec.commentRead" class="flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                            <Eye class="w-3 h-3" />
+                            学员已读未回
+                          </span>
+                        </div>
+                      </div>
+                      <button v-else @click="startWeightComment(rec)" class="flex items-center gap-1 text-sm text-[#07C160] font-medium">
+                        <MessageCircle class="w-4 h-4" />
+                        添加批注
                       </button>
                     </div>
-                    <textarea
-                      class="w-full rounded-lg border border-gray-200 p-2 text-sm focus:outline-none focus:border-[#07C160]"
-                      rows="2"
-                      placeholder="输入体重批注..."
-                      :value="weightCommentText"
-                      @input="weightCommentText = ($event.target as HTMLTextAreaElement).value"
-                    />
-                    <div class="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" @click="cancelWeightComment">取消</Button>
-                      <Button class="bg-[#07C160] text-white" size="sm" @click="handleSaveWeightComment(rec.id)">保存</Button>
-                    </div>
                   </div>
-                  <div v-else-if="rec.dietitianComment" class="relative group">
-                    <div class="flex items-center justify-between mb-1">
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs font-bold text-[#07C160]">批注</span>
-                      </div>
-                      <span v-if="rec.dietitianCommentDate" class="text-[10px] text-gray-400">{{ rec.dietitianCommentDate }}</span>
-                    </div>
-                    <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ rec.dietitianComment }}</p>
-                    <div class="flex items-center gap-2 mt-1">
-                      <button @click="startWeightComment(rec)" class="text-xs text-[#07C160]">编辑</button>
-                      <span v-if="rec.studentFeedback" class="flex items-center gap-1 text-[10px] font-bold text-[#07C160] bg-[#07C160]/10 px-2 py-0.5 rounded-full">
-                        <component :is="rec.studentFeedback === 'helpful' ? ThumbsUp : CheckCircle2" class="w-3 h-3" />
-                        学员{{ rec.studentFeedback === 'helpful' ? '觉得有用' : '已收到' }}
-                      </span>
-                      <span v-else-if="rec.dietitianComment && rec.commentRead" class="flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                        <Eye class="w-3 h-3" />
-                        学员已读未回
-                      </span>
-                    </div>
-                  </div>
-                  <button v-else @click="startWeightComment(rec)" class="flex items-center gap-1 text-sm text-[#07C160] font-medium">
-                    <MessageCircle class="w-4 h-4" />
-                    添加批注
-                  </button>
                 </div>
               </div>
             </div>
@@ -1389,6 +1338,13 @@ function handleDeleteManualScore(id: string) {
       <div class="p-4">
         <h3 class="font-bold text-gray-900 text-base mb-3 text-center">选择营期</h3>
         <div class="space-y-2">
+          <button
+            @click="selectedCampId = ''; showCampPicker = false"
+            :class="['w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all', !selectedCampId ? 'border-[#FF976A] bg-orange-50 text-[#FF976A]' : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50']"
+          >
+            <span class="font-medium">全部营期</span>
+            <span class="text-xs text-gray-400">合并显示</span>
+          </button>
           <button
             v-for="camp in studentCamps"
             :key="camp.id"
