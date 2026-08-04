@@ -112,8 +112,8 @@ const studentManualScores = computed<ManualScoreRecord[]>(() => {
 const exercisePoints = (record: ExerciseRecord): number => {
   let pts = 0;
   if (record.duration >= 40) pts += 1;
-  if (record.dietitianScore === 2) pts += 2;
-  else if (record.dietitianScore === 1) pts += 1;
+  if (record.coachScore === 2) pts += 2;
+  else if (record.coachScore === 1) pts += 1;
   return pts;
 };
 </script>
@@ -223,12 +223,12 @@ const exercisePoints = (record: ExerciseRecord): number => {
           </div>
           <div class="text-sm text-gray-700">时长: {{ record.duration }} 分钟</div>
           <div v-if="record.duration < 40" class="text-[10px] text-gray-500 mt-1 bg-gray-50 p-1 rounded inline-block">未达40分钟，不计基础分</div>
-          <div v-if="record.dietitianScore != null" class="text-[10px] text-[#07C160] mt-1 bg-[#07C160]/5 p-1 rounded inline-block ml-1">
-            营养师评分: +{{ record.dietitianScore }} 加成
+          <div v-if="record.coachScore != null" class="text-[10px] text-[#07C160] mt-1 bg-[#07C160]/5 p-1 rounded inline-block ml-1">
+            教练评分: +{{ record.coachScore }} 加成
           </div>
-          <div v-if="record.dietitianComment" class="mt-3 bg-gray-50 p-2 rounded text-xs text-gray-600">
-            <span class="font-bold text-[#07C160] mr-1">批注:</span>
-            {{ record.dietitianComment }}
+          <div v-if="record.coachComment" class="mt-3 bg-gray-50 p-2 rounded text-xs text-gray-600">
+            <span class="font-bold text-[#07C160] mr-1">教练批注:</span>
+            {{ record.coachComment }}
           </div>
         </Card>
       </template>
