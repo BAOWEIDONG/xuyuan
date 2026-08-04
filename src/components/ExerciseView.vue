@@ -8,6 +8,7 @@ import { uploadFile } from '../lib/api';
 import { compressVideo } from '../lib/videoCompress';
 import { NavBar, Card, Button, Input, ChartRulePopup } from './ui';
 import { Plus, X, Camera, Video, PlayCircle, Loader, MessageCircle, ChevronDown, Dumbbell, TrendingUp } from 'lucide-vue-next';
+import { showToast } from 'vant';
 import { computeExerciseTrends } from '../lib/journey';
 import { formatDateTime } from '../lib/utils';
 import { useDateGrouping } from '../composables/useDateGrouping';
@@ -73,7 +74,6 @@ const activities = ref<ActivityItem[]>([
 ]);
 const notes = ref('');
 const photos = ref<string[]>([]);
-const error = ref('');
 
 // Media upload: 'photo' or 'video' - mutually exclusive
 const mediaType = ref<'photo' | 'video'>('photo');
@@ -94,7 +94,6 @@ const switchMediaType = (type: 'photo' | 'video') => {
   } else {
     photos.value = [];
   }
-  error.value = '';
 };
 
 const handlePhotoSelect = async (e: Event) => {
@@ -115,12 +114,11 @@ const handleVideoSelect = async (e: Event) => {
   if (files.length === 0) return;
   const remaining = MAX_VIDEOS - videoUrls.value.length;
   if (remaining <= 0) {
-    error.value = `最多上传 ${MAX_VIDEOS} 个视频`;
+    showToast({ message: `最多上传 ${MAX_VIDEOS} 个视频`, position: 'top', duration: 2500 });
     (e.target as HTMLInputElement).value = '';
     return;
   }
   const toUpload = files.slice(0, remaining);
-  error.value = '';
   videoCompressing.value = true;
   compressProgress.value = 0;
 
@@ -137,7 +135,7 @@ const handleVideoSelect = async (e: Event) => {
     );
     videoUrls.value = [...videoUrls.value, ...urls];
   } catch {
-    error.value = '视频处理失败，请重试';
+    showToast({ message: '视频处理失败，请重试', position: 'top', duration: 2500 });
   } finally {
     videoCompressing.value = false;
     compressProgress.value = 0;
@@ -161,7 +159,6 @@ const handleRemoveActivity = (id: string) => {
 
 const updateActivity = (id: string, field: keyof ActivityItem, value: any) => {
   activities.value = activities.value.map((a) => (a.id === id ? { ...a, [field]: value } : a));
-  error.value = '';
 };
 
 const getIntensityConfig = (level: number) => INTENSITY_CONFIG[level - 1] || INTENSITY_CONFIG[2];
@@ -306,22 +303,29 @@ const hasReachedDailyLimit = computed(() => todayExercise.value.length >= MAX_DA
 
 const handleSubmit = () => {
   if (hasReachedDailyLimit.value) {
-    error.value = `今日已完成 ${MAX_DAILY_EXERCISE} 次运动打卡，明天再来吧`;
+    showToast({ message: `今日已完成 ${MAX_DAILY_EXERCISE} 次运动打卡，明天再来吧`, position: 'top', duration: 2500 });
     return;
   }
 
   for (const a of activities.value) {
     if (!a.duration) {
-      error.value = '请填写所有运动的时长';
+      showToast({ message: '请填写所有运动的时长', position: 'top', duration: 2500 });
       return;
     }
     if (a.type === '其他' && !a.customType.trim()) {
-      error.value = '请填写自定义运动名称';
+      showToast({ message: '请填写自定义运动名称', position: 'top', duration: 2500 });
       return;
     }
   }
-
-  error.value = '';
+  // 必须上传图片或视频（二选一）
+  if (mediaType.value === 'photo' && photos.value.length === 0) {
+    showToast({ message: '请上传至少一张运动照片，或切换到视频打卡', position: 'top', duration: 2500 });
+    return;
+  }
+  if (mediaType.value === 'video' && videoUrls.value.length === 0) {
+    showToast({ message: '请上传至少一段运动视频，或切换到图片打卡', position: 'top', duration: 2500 });
+    return;
+  }
 
   // 打卡前连续天数（判断是否因本次打卡而增长）
   const streakBefore = calculateStreak(campEx.value, campDiet.value, campWt.value, store.user?.id);
@@ -571,7 +575,7 @@ const handleSubmit = () => {
               视频打卡
             </button>
           </div>
-          <p class="text-[10px] text-gray-400 text-center">图片和视频二选一，选择一种类型上传</p>
+          <p class="text-[10px] text-red-500 text-center">图片和视频二选一上传（必填）</p>
         </div>
 
         <!-- Photo upload -->
@@ -660,7 +664,6 @@ const handleSubmit = () => {
         </div>
       </Card>
 
-      <div v-if="error" class="text-red-500 text-sm text-center font-medium bg-red-50 p-2 rounded-lg animate-shake">{{ error }}</div>
     </div>
 
     <!-- ══════════ Tab 2: 趋势 ══════════ -->

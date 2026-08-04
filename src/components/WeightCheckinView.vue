@@ -7,6 +7,7 @@ import { calculateStreak } from '../lib/streak';
 import { uploadFile } from '../lib/api';
 import { NavBar, Button, Card, ChartRulePopup } from './ui';
 import { Scale, TrendingUp, TrendingDown, Minus, Camera, X, ChevronDown, Target, Pencil } from 'lucide-vue-next';
+import { showToast } from 'vant';
 import { formatDateTime } from '../lib/utils';
 import { useDateGrouping } from '../composables/useDateGrouping';
 
@@ -32,12 +33,11 @@ const campWt = computed(() => activeCampId.value ? store.getCampWeightRecords(ac
 const campRewardTiers = computed(() => activeCampId.value ? store.getCampRewardTiers(activeCampId.value) : store.rewardTiers);
 
 const weight = ref('');
-const error = ref('');
 const photos = ref<string[]>([]);
 const photoInputRef = ref<HTMLInputElement | null>(null);
 
 // 照片上传区折叠（默认收起，减少视觉干扰）
-const showPhotoUpload = ref(false);
+const showPhotoUpload = ref(true);
 
 // 目标体重
 const targetWeight = ref(store.user?.targetWeight ? String(store.user.targetWeight) : '');
@@ -96,11 +96,14 @@ watch(
 const handleSubmit = () => {
   const val = parseFloat(weight.value);
   if (isNaN(val) || val <= 0 || val > 300) {
-    error.value = '请输入合理的体重数值（例如: 65.5）';
+    showToast({ message: '请输入合理的体重数值（例如: 65.5）', position: 'top', duration: 2500 });
+    return;
+  }
+  if (photos.value.length === 0) {
+    showToast({ message: '请上传体重打卡照片', position: 'top', duration: 2500 });
     return;
   }
 
-  error.value = '';
   justSubmitted.value = true;
 
   // 打卡前连续天数
@@ -407,13 +410,12 @@ function handleChartTouchMove(e: TouchEvent) {
             inputmode="decimal"
             step="0.1"
             :value="weight"
-            @input="weight = ($event.target as HTMLInputElement).value; error = ''"
+            @input="weight = ($event.target as HTMLInputElement).value"
             class="text-5xl font-light text-center text-gray-900 focus:outline-none w-40 bg-transparent"
             placeholder="0.0"
           />
           <span class="text-xl font-medium text-gray-400 pb-1">kg</span>
         </div>
-        <div v-if="error" class="text-red-500 text-sm text-center mt-4 animate-shake">{{ error }}</div>
       </Card>
 
       <!-- Photo upload (折叠) -->
@@ -421,7 +423,7 @@ function handleChartTouchMove(e: TouchEvent) {
         <button @click="showPhotoUpload = !showPhotoUpload" class="w-full flex items-center justify-between">
           <span class="text-sm font-bold text-gray-700 flex items-center gap-1.5">
             <Camera class="w-4 h-4 text-gray-400" />
-            打卡照片 <span class="text-[10px] text-gray-400 font-normal">(选填)</span>
+            打卡照片 <span class="text-[10px] text-red-500 font-normal">(必填)</span>
           </span>
           <span class="text-xs text-[#1677FF] font-medium">{{ showPhotoUpload ? '收起' : photos.length > 0 ? `已选 ${photos.length} 张` : '添加' }}</span>
         </button>
