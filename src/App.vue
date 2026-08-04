@@ -11,6 +11,7 @@ import ExerciseView from './components/ExerciseView.vue';
 import DietView from './components/DietView.vue';
 import CalendarView from './components/CalendarView.vue';
 import CoachDashboardView from './components/CoachDashboardView.vue';
+import CoachStudentDetailView from './components/CoachStudentDetailView.vue';
 import WeightCheckinView from './components/WeightCheckinView.vue';
 import ActivitiesListView from './components/ActivitiesListView.vue';
 import ActivityUploadView from './components/ActivityUploadView.vue';
@@ -53,6 +54,7 @@ const viewMap: Record<string, Component> = {
   'weight-checkin': WeightCheckinView,
   calendar: CalendarView,
   'coach-dashboard': CoachDashboardView,
+  'coach-student-detail': CoachStudentDetailView,
   'activity-upload': ActivityUploadView,
   'activities-list': ActivitiesListView,
   'dietitian-dashboard': DietitianDashboardView,
