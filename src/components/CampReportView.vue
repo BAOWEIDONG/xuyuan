@@ -66,7 +66,7 @@ const unreadCount = computed(() => {
   if (store.user?.role !== 'student') return 0;
   const id = store.user.id;
   const diet = campDietRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
-  const ex = campExerciseRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const ex = campExerciseRecords.value.filter((r) => r.studentId === id && r.coachComment && !r.commentRead);
   const wt = campWeightRecords.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
   return diet.length + ex.length + wt.length;
 });
@@ -145,7 +145,7 @@ const campMessage = computed(() => {
 const dietitianName = computed(() => {
   const names = [campDietRecords.value, campExerciseRecords.value, campWeightRecords.value]
     .flat()
-    .map((r) => r.dietitianName)
+    .map((r) => (r as any).dietitianName || (r as any).coachName)
     .filter(Boolean);
   return names.length > 0 ? names[names.length - 1] : '营养师';
 });
