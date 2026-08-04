@@ -265,7 +265,7 @@ const markGroupCommentsRead = (date: string) => {
   const group = groupedHistory.value.find((g) => g.date === date);
   if (!group) return;
   group.records.forEach((r) => {
-    if (r.dietitianComment && !r.commentRead) {
+    if (r.coachComment && !r.commentRead) {
       store.updateExerciseRecord(r.id, { commentRead: true });
     }
   });
@@ -768,7 +768,7 @@ const handleSubmit = () => {
               <span class="w-1 h-4 rounded-full bg-[#07C160]"></span>
               <span class="text-sm font-bold text-gray-800">{{ group.label }}</span>
               <span class="text-[10px] text-gray-400">{{ group.records.length }}条记录</span>
-              <span v-if="group.records.some((r) => r.dietitianComment && !r.commentRead)" class="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">新批注</span>
+              <span v-if="group.records.some((r) => r.coachComment && !r.commentRead)" class="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">新批注</span>
             </div>
             <ChevronDown
               class="w-4 h-4 text-gray-400 transition-transform duration-200"
@@ -822,16 +822,16 @@ const handleSubmit = () => {
                   </div>
                 </div>
 
-                <div v-if="record.dietitianComment" class="mt-3 p-2.5 rounded-lg bg-[#07C160]/5 border border-[#07C160]/10">
+                <div v-if="record.coachComment" class="mt-3 p-2.5 rounded-lg bg-[#07C160]/5 border border-[#07C160]/10">
                   <div class="flex items-center gap-1.5 mb-1">
                     <MessageCircle class="w-3 h-3 text-[#07C160]" />
-                    <span class="text-[11px] font-bold text-[#07C160]">批注</span>
-                    <span v-if="record.dietitianScore === 2" class="text-[10px] font-bold text-white bg-[#07C160] px-1.5 py-0.5 rounded">+2</span>
-                    <span v-else-if="record.dietitianScore === 1" class="text-[10px] font-bold text-white bg-[#FF976A] px-1.5 py-0.5 rounded">+1</span>
-                    <span v-else-if="record.dietitianScore === 0" class="text-[10px] font-bold text-white bg-gray-400 px-1.5 py-0.5 rounded">0</span>
+                    <span class="text-[11px] font-bold text-[#07C160]">教练批注</span>
+                    <span v-if="record.coachScore === 2" class="text-[10px] font-bold text-white bg-[#07C160] px-1.5 py-0.5 rounded">+2</span>
+                    <span v-else-if="record.coachScore === 1" class="text-[10px] font-bold text-white bg-[#FF976A] px-1.5 py-0.5 rounded">+1</span>
+                    <span v-else-if="record.coachScore === 0" class="text-[10px] font-bold text-white bg-gray-400 px-1.5 py-0.5 rounded">0</span>
                     <span v-if="!record.commentRead" class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
                   </div>
-                  <p class="text-xs text-gray-700 leading-relaxed">{{ record.dietitianComment }}</p>
+                  <p class="text-xs text-gray-700 leading-relaxed">{{ record.coachComment }}</p>
                   <!-- 学员反馈 -->
                   <div class="flex gap-2 mt-2">
                     <button
