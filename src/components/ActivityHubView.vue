@@ -217,8 +217,8 @@ const activityCount = computed(() => {
 });
 
 // 积分商城摘要
-const mallPoints = computed(() => store.user ? store.getStudentMallPoints(store.user.id) : 0);
-const totalEarned = computed(() => store.user ? store.getStudentTotalEarnedPoints(store.user.id) : 0);
+const mallPoints = computed(() => store.user ? store.getStudentMallPoints(store.user.id, activeCampId.value || undefined) : 0);
+const totalEarned = computed(() => store.user ? store.getStudentTotalEarnedPoints(store.user.id, activeCampId.value || undefined) : 0);
 const productCount = computed(() => store.getPointProducts().length);
 
 // 未读批注
@@ -226,7 +226,7 @@ const unreadCount = computed(() => {
   if (store.user?.role !== 'student') return 0;
   const id = store.user.id;
   const diet = campDiet.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
-  const ex = campEx.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const ex = campEx.value.filter((r) => r.studentId === id && r.coachComment && !r.commentRead);
   const wt = campWt.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
   return diet.length + ex.length + wt.length;
 });
