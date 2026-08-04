@@ -17,8 +17,8 @@ const activeCampId = computed(() => {
   return active?.id || availableCamps.value[0]?.id || null;
 });
 
-const availablePoints = computed(() => store.user ? store.getStudentMallPoints(store.user.id) : 0);
-const totalEarned = computed(() => store.user ? store.getStudentTotalEarnedPoints(store.user.id) : 0);
+const availablePoints = computed(() => store.user ? store.getStudentMallPoints(store.user.id, activeCampId.value || undefined) : 0);
+const totalEarned = computed(() => store.user ? store.getStudentTotalEarnedPoints(store.user.id, activeCampId.value || undefined) : 0);
 const products = computed(() => store.getPointProducts());
 
 // 兑换确认弹窗
@@ -88,7 +88,7 @@ const unreadCount = computed(() => {
   if (store.user?.role !== 'student') return 0;
   const id = store.user.id;
   const diet = store.dietRecords.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
-  const ex = store.exerciseRecords.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const ex = store.exerciseRecords.filter((r) => r.studentId === id && r.coachComment && !r.commentRead);
   const wt = store.weightRecords.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
   return diet.length + ex.length + wt.length;
 });

@@ -82,16 +82,16 @@ export interface ExerciseRecord {
   photos?: string[];
   /** 运动视频 URL 列表 */
   videoUrls?: string[];
-  /** 营养师对该条运动记录的批注 */
-  dietitianComment?: string;
-  dietitianName?: string;
-  dietitianCommentDate?: string;
+  /** 教练对该条运动记录的批注 */
+  coachComment?: string;
+  coachName?: string;
+  coachCommentDate?: string;
   /** 学员对批注的反馈：收到 / 有用 */
   studentFeedback?: 'received' | 'helpful';
   /** 学员是否已读该批注 */
   commentRead?: boolean;
-  /** 营养师对该条运动记录的评分：0=未达标 / 1=尚可 / 2=到位 */
-  dietitianScore?: 0 | 1 | 2 | null;
+  /** 教练对该条运动记录的评分：0=未达标 / 1=尚可 / 2=到位 */
+  coachScore?: 0 | 1 | 2 | null;
 }
 
 export interface DietRecord {

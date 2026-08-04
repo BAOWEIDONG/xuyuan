@@ -215,9 +215,9 @@ const dailySummary = computed(() => {
   // 昨日收到的最新一条营养师批注
   const comments = [
     ...campDiet.value.filter((r) => isMine(r) && r.dietitianComment && (r.dietitianCommentDate || '').startsWith(yesterdayStr)),
-    ...campEx.value.filter((r) => isMine(r) && r.dietitianComment && (r.dietitianCommentDate || '').startsWith(yesterdayStr)),
+    ...campEx.value.filter((r) => isMine(r) && r.coachComment && (r.coachCommentDate || '').startsWith(yesterdayStr)),
     ...campWt.value.filter((r) => isMine(r) && r.dietitianComment && (r.dietitianCommentDate || '').startsWith(yesterdayStr)),
-  ].sort((a, b) => (b.dietitianCommentDate || '').localeCompare(a.dietitianCommentDate || ''));
+  ].sort((a, b) => ((b as any).dietitianCommentDate || (b as any).coachCommentDate || '').localeCompare((a as any).dietitianCommentDate || (a as any).coachCommentDate || ''));
   const latestComment = comments[0] || null;
 
   const didSomething = meals.size > 0 || exerciseMins > 0 || !!yesterdayWeight;
@@ -265,13 +265,13 @@ const todayDietLabel = computed(() => {
 // ---- 营养师未读批注（仅用于 tabbar badge 计数） ----
 const unreadComments = computed(() => {
   const diet = campDiet.value.filter((r) => isMine(r) && r.dietitianComment && !r.commentRead);
-  const exercise = campEx.value.filter((r) => isMine(r) && r.dietitianComment && !r.commentRead);
+  const exercise = campEx.value.filter((r) => isMine(r) && r.coachComment && !r.commentRead);
   const weight = campWt.value.filter((r) => isMine(r) && r.dietitianComment && !r.commentRead);
   return [
     ...diet.map((r) => ({ ...r, _type: 'diet' as const })),
     ...exercise.map((r) => ({ ...r, _type: 'exercise' as const })),
     ...weight.map((r) => ({ ...r, _type: 'weight' as const })),
-  ].sort((a, b) => (b.dietitianCommentDate || '').localeCompare(a.dietitianCommentDate || ''));
+  ].sort((a, b) => ((b as any).dietitianCommentDate || (b as any).coachCommentDate || '').localeCompare((a as any).dietitianCommentDate || (a as any).coachCommentDate || ''));
 });
 
 // 卡片入场动画
@@ -719,9 +719,9 @@ onMounted(() => {
             <div v-if="dailySummary!.comment" class="bg-[#07C160]/5 border border-[#07C160]/15 rounded-xl p-3 mb-4">
               <div class="flex items-center gap-1.5 mb-1">
                 <MessageCircle class="w-3 h-3 text-[#07C160]" />
-                <span class="text-[10px] font-bold text-[#07C160]">{{ dailySummary!.comment.dietitianName || '营养师' }} 昨天对你说</span>
+                <span class="text-[10px] font-bold text-[#07C160]">{{ (dailySummary!.comment as any).dietitianName || (dailySummary!.comment as any).coachName || '老师' }} 昨天对你说</span>
               </div>
-              <p class="text-xs text-gray-700 leading-relaxed line-clamp-2">{{ dailySummary!.comment.dietitianComment }}</p>
+              <p class="text-xs text-gray-700 leading-relaxed line-clamp-2">{{ (dailySummary!.comment as any).dietitianComment || (dailySummary!.comment as any).coachComment }}</p>
             </div>
 
             <button @click="dismissDailySummary" class="w-full py-3 rounded-xl bg-gradient-to-r from-[#07C160] to-[#06b558] text-white text-sm font-bold active:scale-[0.98] transition-transform shadow-lg shadow-[#07C160]/20">

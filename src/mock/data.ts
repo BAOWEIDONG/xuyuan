@@ -102,10 +102,10 @@ for (let i = -(COMPLETE_DAYS - 1); i <= 0; i++) {
     duration: 35 + (i % 3) * 5,
     intensity: 3 + (i % 2),
     photos: i % 2 === 0 ? ['https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&q=80'] : undefined,
-    dietitianComment: i < 0 ? (i % 2 === 0 ? '配速不错，继续保持。' : '动作标准，力量稳步提升。') : undefined,
-    dietitianCommentDate: i < 0 ? iso(i, '21:00:00') : undefined,
-    dietitianName: i < 0 ? '王营养师' : undefined,
-    dietitianScore: i < 0 ? 2 : undefined,
+    coachComment: i < 0 ? (i % 2 === 0 ? '配速不错，继续保持。' : '动作标准，力量稳步提升。') : undefined,
+    coachCommentDate: i < 0 ? iso(i, '21:00:00') : undefined,
+    coachName: i < 0 ? '李教练' : undefined,
+    coachScore: i < 0 ? 2 : undefined,
   });
 }
 
@@ -241,9 +241,9 @@ MOCK_EXERCISE_RECORDS.push(
     type: '瑜伽',
     duration: 40,
     intensity: 2,
-    dietitianComment: '核心收紧得很好，拉伸很到位，继续保持！',
-    dietitianName: '营养师王老师',
-    dietitianCommentDate: iso(0, '20:30:00'),
+    coachComment: '核心收紧得很好，拉伸很到位，继续保持！',
+    coachName: '李教练',
+    coachCommentDate: iso(0, '20:30:00'),
   },
   {
     id: 'e_s1_video',
@@ -272,7 +272,7 @@ for (let i = -(PAST_DAYS_S2 - 1); i < 0; i++) {
     { id: `d_l_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '12:00:00'), meal: 'lunch', description: '鸡胸肉沙拉+糙米饭', photos: [], dietitianScore: 2 },
     { id: `d_d_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '18:00:00'), meal: 'dinner', description: '清蒸鱼+西兰花', photos: [], dietitianScore: 2 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '17:30:00'), type: '跑步', duration: 45, intensity: 3, dietitianScore: i === -1 ? 1 : 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's2', campId: 'camp1', date: iso(i, '17:30:00'), type: '跑步', duration: 45, intensity: 3, coachScore: i === -1 ? 1 : 2 });
 }
 
 for (let i = -(PAST_DAYS_S3 - 1); i < 0; i++) {
@@ -282,7 +282,7 @@ for (let i = -(PAST_DAYS_S3 - 1); i < 0; i++) {
     { id: `d_l_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '12:30:00'), meal: 'lunch', description: '牛肉+紫薯+蔬菜', photos: [], dietitianScore: i === -2 ? 1 : 2 },
     { id: `d_d_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '18:30:00'), meal: 'dinner', description: '鸡胸肉+蔬菜汤', photos: [], dietitianScore: i === -2 ? 1 : 2 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '19:00:00'), type: '力量训练', duration: 45, intensity: 4, dietitianScore: 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's3', campId: 'camp1', date: iso(i, '19:00:00'), type: '力量训练', duration: 45, intensity: 4, coachScore: 2 });
 }
 
 for (let i = -(PAST_DAYS_S4 - 1); i < 0; i++) {
@@ -292,7 +292,7 @@ for (let i = -(PAST_DAYS_S4 - 1); i < 0; i++) {
     { id: `d_l_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '12:00:00'), meal: 'lunch', description: '虾仁+藜麦+蔬菜', photos: [], dietitianScore: 2 },
     { id: `d_d_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '18:00:00'), meal: 'dinner', description: '豆腐+蔬菜+少量主食', photos: [], dietitianScore: 2 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '18:30:00'), type: i % 2 === 0 ? '瑜伽' : '游泳', duration: i === -1 ? 35 : 40, intensity: 3, dietitianScore: i === -1 ? 1 : 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's4', campId: 'camp1', date: iso(i, '18:30:00'), type: i % 2 === 0 ? '瑜伽' : '游泳', duration: i === -1 ? 35 : 40, intensity: 3, coachScore: i === -1 ? 1 : 2 });
 }
 
 // s2 今日晚餐（单独 push 的 d6/d7 只有早午餐，补晚餐使今日打卡完整）
@@ -336,7 +336,7 @@ for (let i = -(PAST_DAYS_S5 - 1); i <= 0; i++) {
     { id: `d_l_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '12:15:00'), meal: 'lunch', description: '鸡腿肉+糙米饭+青菜', photos: [], dietitianScore: 2 },
     { id: `d_d_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '18:30:00'), meal: 'dinner', description: '豆腐+蔬菜汤', photos: [], dietitianScore: 1 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '19:30:00'), type: '骑车', duration: 40, intensity: 3, dietitianScore: 1 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's5', campId: 'camp1', date: iso(i, '19:30:00'), type: '骑车', duration: 40, intensity: 3, coachScore: 1 });
   const w = parseFloat((70.0 - (i + PAST_DAYS_S5 - 1) * 0.21).toFixed(1));
   MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:20:00'), weight: w, studentId: 's5', campId: 'camp1' });
 }
@@ -350,7 +350,7 @@ for (let i = -(PAST_DAYS_S6 - 1); i <= 0; i++) {
     { id: `d_l_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '12:30:00'), meal: 'lunch', description: '牛肉面+蔬菜沙拉', photos: [], dietitianScore: 1 },
     { id: `d_d_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '18:00:00'), meal: 'dinner', description: '鸡胸肉+西兰花', photos: [], dietitianScore: 2 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '20:00:00'), type: '跑步', duration: 45, intensity: 3, dietitianScore: 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2', date: iso(i, '20:00:00'), type: '跑步', duration: 45, intensity: 3, coachScore: 2 });
   const w = parseFloat((65.0 - (i + PAST_DAYS_S6 - 1) * 0.16).toFixed(1));
   MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:30:00'), weight: w, studentId: 's6', campId: i < -2 ? 'camp1' : 'camp2' });
 }
@@ -364,7 +364,7 @@ for (let i = -(PAST_DAYS_S7 - 1); i <= 0; i++) {
     { id: `d_l_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '12:00:00'), meal: 'lunch', description: '三文鱼+藜麦+蔬菜', photos: [], dietitianScore: 2 },
     { id: `d_d_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '18:00:00'), meal: 'dinner', description: '蔬菜汤+鸡蛋', photos: [], dietitianScore: 1 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '18:30:00'), type: '瑜伽', duration: 50, intensity: 2, dietitianScore: 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's7', campId: 'camp2', date: iso(i, '18:30:00'), type: '瑜伽', duration: 50, intensity: 2, coachScore: 2 });
   const w = parseFloat((52.0 - (i + PAST_DAYS_S7 - 1) * 0.1).toFixed(1));
   MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:15:00'), weight: w, studentId: 's7', campId: 'camp2' });
 }
@@ -378,7 +378,7 @@ for (let i = -(PAST_DAYS_S8 - 1); i <= 0; i++) {
     { id: `d_l_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '12:30:00'), meal: 'lunch', description: '鸡胸肉+米饭+蔬菜', photos: [], dietitianScore: 2 },
     { id: `d_d_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '19:00:00'), meal: 'dinner', description: '蔬菜沙拉+鸡蛋', photos: [], dietitianScore: 1 },
   );
-  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '20:00:00'), type: '游泳', duration: 45, intensity: 3, dietitianScore: 2 });
+  MOCK_EXERCISE_RECORDS.push({ id: `e_${idSuffix}`, studentId: 's8', campId: 'camp2', date: iso(i, '20:00:00'), type: '游泳', duration: 45, intensity: 3, coachScore: 2 });
   const w = parseFloat((78.0 - (i + PAST_DAYS_S8 - 1) * 0.15).toFixed(1));
   MOCK_WEIGHT_RECORDS.push({ id: `w_${idSuffix}`, date: iso(i, '07:40:00'), weight: w, studentId: 's8', campId: 'camp2' });
 }
@@ -869,8 +869,8 @@ export const MOCK_ACCOUNTS: Account[] = [
   { id: 'd1', phone: '13900000001', name: '王营养师', role: 'dietitian', active: true, createdAt: iso(-30, '09:00:00') },
   { id: 'd2', phone: '13900000002', name: '李营养师', role: 'dietitian', active: true, createdAt: iso(-20, '09:00:00') },
   // 教练
-  { id: 'c1', phone: '13700000001', name: '李教练', role: 'coach', active: true, createdAt: iso(-28, '10:00:00') },
-  { id: 'c2', phone: '13700000002', name: '王教练', role: 'coach', active: true, createdAt: iso(-28, '10:00:00') },
+  { id: 'c1', phone: '13700000001', name: '李教练', role: 'coach', campIds: ['camp1'], active: true, createdAt: iso(-28, '10:00:00') },
+  { id: 'c2', phone: '13700000002', name: '王教练', role: 'coach', campIds: ['camp1', 'camp2'], active: true, createdAt: iso(-28, '10:00:00') },
   { id: 'c3', phone: '13700000003', name: '张教练', role: 'coach', active: true, createdAt: iso(-28, '10:00:00') },
   // 学员（id 与 MOCK_STUDENTS 一致，确保登录后能关联到打卡/体重/检测数据）
   { id: 's1', phone: '13800000001', name: '李明', role: 'student', campIds: ['camp1'], active: true, createdAt: iso(-15, '08:00:00') },
@@ -904,7 +904,7 @@ export const MOCK_POINT_EXCHANGES: PointExchangeRecord[] = [
 
 /** 营养师手动加减分记录（补录线下打卡积分等） */
 export const MOCK_MANUAL_SCORES: ManualScoreRecord[] = [
-  { id: 'ms1', studentId: 's1', points: 10, reason: '营前线下打卡补录（5天饮食+运动）', dietitianName: '营养师小王', createdAt: iso(-2, '10:00:00'), date: dateStr(-7), campId: 'c1' },
-  { id: 'ms2', studentId: 's2', points: 6, reason: '线下运动打卡补录', dietitianName: '营养师小王', createdAt: iso(-2, '10:05:00'), date: dateStr(-5), campId: 'c1' },
-  { id: 'ms3', studentId: 's3', points: -2, reason: '打卡作弊扣分', dietitianName: '营养师小王', createdAt: iso(-1, '15:00:00'), date: dateStr(-1), campId: 'c1' },
+  { id: 'ms1', studentId: 's1', points: 10, reason: '营前线下打卡补录（5天饮食+运动）', dietitianName: '营养师小王', createdAt: iso(-2, '10:00:00'), date: dateStr(-7), campId: 'camp1' },
+  { id: 'ms2', studentId: 's2', points: 6, reason: '线下运动打卡补录', dietitianName: '营养师小王', createdAt: iso(-2, '10:05:00'), date: dateStr(-5), campId: 'camp1' },
+  { id: 'ms3', studentId: 's3', points: -2, reason: '打卡作弊扣分', dietitianName: '营养师小王', createdAt: iso(-1, '15:00:00'), date: dateStr(-1), campId: 'camp1' },
 ];

@@ -40,6 +40,7 @@ export type View =
   | 'weight-checkin'
   | 'calendar'
   | 'coach-dashboard'
+  | 'coach-student-detail'
   | 'activity-upload'
   | 'dietitian-dashboard'
   | 'dietitian-student-detail'
@@ -304,7 +305,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /** 底部 Tab 根页面（切换时去重，避免历史栈无限增长） */
-  const TAB_ROOTS: View[] = ['dashboard', 'messages', 'health-profile', 'dietitian-dashboard', 'dietitian-unannotated-list', 'dietitian-config'];
+  const TAB_ROOTS: View[] = ['dashboard', 'messages', 'health-profile', 'coach-dashboard', 'dietitian-dashboard', 'dietitian-unannotated-list', 'dietitian-config'];
 
   function setCurrentView(view: View) {
     const current = viewHistory.value[viewHistory.value.length - 1];
@@ -438,20 +439,24 @@ export const useAppStore = defineStore('app', () => {
     api.deletePointProduct(id).catch(() => {});
   }
 
-  /** 计算学员的积分商城可用积分（排行榜总积分 - 已消耗积分，不可为负） */
-  function getStudentMallPoints(studentId: string): number {
-    const earned = getStudentTotalEarnedPoints(studentId);
+  /** 计算学员的积分商城可用积分（排行榜总积分 - 已消耗积分，不可为负）
+   *  campId 传入时按营期过滤（与排行榜一致），不传则汇总全部营期
+   */
+  function getStudentMallPoints(studentId: string, campId?: string): number {
+    const earned = getStudentTotalEarnedPoints(studentId, campId);
     const spent = pointExchanges.value
       .filter((e) => e.studentId === studentId && e.status !== 'cancelled')
       .reduce((sum, e) => sum + e.pointsSpent, 0);
     return Math.max(0, earned - spent);
   }
 
-  /** 学员总获得积分（饮食分+运动分+手动加减分） */
-  function getStudentTotalEarnedPoints(studentId: string): number {
-    const diet = dietRecords.value.filter((r) => r.studentId === studentId);
-    const exercise = exerciseRecords.value.filter((r) => r.studentId === studentId);
-    const manual = manualScoreRecords.value.filter((r) => r.studentId === studentId);
+  /** 学员总获得积分（饮食分+运动分+手动加减分）
+   *  campId 传入时按营期过滤（与排行榜一致），不传则汇总全部营期
+   */
+  function getStudentTotalEarnedPoints(studentId: string, campId?: string): number {
+    const diet = (campId ? getCampDietRecords(campId) : dietRecords.value).filter((r) => r.studentId === studentId);
+    const exercise = (campId ? getCampExerciseRecords(campId) : exerciseRecords.value).filter((r) => r.studentId === studentId);
+    const manual = (campId ? getCampManualScoreRecords(campId) : manualScoreRecords.value).filter((r) => r.studentId === studentId);
     return calculateTotalScore(diet, exercise, manual);
   }
 
@@ -471,7 +476,7 @@ export const useAppStore = defineStore('app', () => {
     deliveryInfo?: { recipientName: string; recipientPhone: string; recipientAddress: string; deliveryMethod: 'shipped' | 'in-person' },
     campId?: string,
   ): PointExchangeRecord | null {
-    const available = getStudentMallPoints(studentId);
+    const available = getStudentMallPoints(studentId, campId);
     if (available < product.pointsRequired) return null;
     if (product.stock <= 0) return null;
     // 防御性校验：deliveryMethod 必须被商品支持
@@ -674,6 +679,33 @@ export const useAppStore = defineStore('app', () => {
     return coachActivities.value.filter((a) => !a.campIds || a.campIds.length === 0 || a.campIds.includes(campId));
   }
 
+  /** 获取教练负责的营期列表（从 coach account.campIds 获取） */
+  function getCoachCamps(): Camp[] {
+    if (!user.value || user.value.role !== 'coach') return [];
+    const account = accounts.value.find(a => a.id === user.value!.id || a.phone === user.value!.phone);
+    if (!account?.campIds || account.campIds.length === 0) return camps.value.filter(c => c.status === 'active');
+    return camps.value.filter(c => account.campIds.includes(c.id));
+  }
+
+  /** 获取教练负责的学员列表（按教练营期过滤） */
+  function getCoachStudents(): { id: string; name: string; phone: string; gender?: 'male' | 'female'; age?: number }[] {
+    const coachCamps = getCoachCamps();
+    if (coachCamps.length === 0) return [];
+    const campIds = coachCamps.map(c => c.id);
+    return accounts.value
+      .filter(a => a.role === 'student' && a.active && a.campIds?.some(id => campIds.includes(id)))
+      .map(a => {
+        const studentInfo = students.value.find(s => s.id === a.id);
+        return {
+          id: a.id,
+          name: a.name,
+          phone: a.phone,
+          gender: studentInfo?.gender,
+          age: studentInfo?.age,
+        };
+      });
+  }
+
   /** 获取指定营期的学员列表（从 accounts 中筛选 campIds 包含该营期且 active 的学员） */
   function getStudentsByCamp(campId: string): { id: string; name: string; phone: string; gender?: 'male' | 'female'; age?: number }[] {
     return accounts.value
@@ -807,6 +839,8 @@ export const useAppStore = defineStore('app', () => {
     canViewCampReport,
     getStudentsByCamp,
     getAllStudents,
+    getCoachCamps,
+    getCoachStudents,
     getStudentCampId,
     getStudentCamps,
   };
