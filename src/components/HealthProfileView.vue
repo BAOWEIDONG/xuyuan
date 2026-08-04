@@ -19,7 +19,7 @@ const unreadCount = computed(() => {
   const ex = campId ? store.getCampExerciseRecords(campId) : store.exerciseRecords;
   const wt = campId ? store.getCampWeightRecords(campId) : store.weightRecords;
   return diet.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead).length
-    + ex.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead).length
+    + ex.filter((r) => r.studentId === id && r.coachComment && !r.commentRead).length
     + wt.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead).length;
 });
 
