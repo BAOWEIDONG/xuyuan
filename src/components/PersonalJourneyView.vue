@@ -32,7 +32,7 @@ const unreadCount = computed(() => {
   if (store.user?.role !== 'student') return 0;
   const id = store.user.id;
   const diet = campDiet.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
-  const ex = campEx.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
+  const ex = campEx.value.filter((r) => r.studentId === id && r.coachComment && !r.commentRead);
   const wt = campWt.value.filter((r) => r.studentId === id && r.dietitianComment && !r.commentRead);
   return diet.length + ex.length + wt.length;
 });
