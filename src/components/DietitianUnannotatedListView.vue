@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useAppStore } from '../store/app';
 import { UserCircle, Coffee, Clock, Activity, Scale, Video, ChevronDown, FileText, Settings, Users } from 'lucide-vue-next';
 import { Popup as VanPopup, Tabbar as VanTabbar, TabbarItem as VanTabbarItem } from 'vant';
-import type { DietRecord, WeightRecord, ExerciseRecord } from '../types';
+import type { DietRecord, WeightRecord } from '../types';
 
 const MEAL_TYPES = [
   { id: 'breakfast', label: '早餐' },
@@ -12,7 +12,7 @@ const MEAL_TYPES = [
   { id: 'snack', label: '加餐' },
 ];
 
-type ItemType = 'diet' | 'weight' | 'exercise';
+type ItemType = 'diet' | 'weight';
 
 interface UnifiedItem {
   id: string;
@@ -26,14 +26,20 @@ interface UnifiedItem {
   photos?: string[];
   // weight
   weight?: number;
-  // exercise
-  exerciseType?: string;
-  duration?: number;
-  intensity?: number;
   videoUrls?: string[];
 }
 
 const store = useAppStore();
+
+// ─── 待批注数量（显示在底部 Tabbar 徽标） ───
+const unannotatedCount = computed(() => {
+  const activeCampId = store.selectedCampId;
+  const dietRecords = activeCampId ? store.getCampDietRecords(activeCampId) : store.dietRecords;
+  const weightRecords = activeCampId ? store.getCampWeightRecords(activeCampId) : store.weightRecords;
+  const diet = dietRecords.filter((r) => !r.dietitianComment && r.dietitianScore == null).length;
+  const weight = weightRecords.filter((r) => !r.dietitianComment).length;
+  return diet + weight;
+});
 
 // ─── 营期切换（与 store 同步，null = 全部营期） ───
 const selectedCampId = ref<string | null>(store.selectedCampId);
@@ -43,7 +49,6 @@ const selectedCamp = computed(() => selectedCampId.value ? store.camps.find((c) 
 // 按营期过滤打卡记录
 const campDietRecords = computed(() => selectedCampId.value ? store.getCampDietRecords(selectedCampId.value) : store.dietRecords);
 const campWeightRecords = computed(() => selectedCampId.value ? store.getCampWeightRecords(selectedCampId.value) : store.weightRecords);
-const campExerciseRecords = computed(() => selectedCampId.value ? store.getCampExerciseRecords(selectedCampId.value) : store.exerciseRecords);
 
 // 过滤标签
 const activeFilter = ref<ItemType | 'all'>('all');
@@ -86,23 +91,6 @@ const allItems = computed<UnifiedItem[]>(() => {
       });
     });
 
-  // 运动待批注
-  campExerciseRecords.value
-    .filter((r) => !r.dietitianComment && r.dietitianScore == null)
-    .forEach((r: ExerciseRecord) => {
-      items.push({
-        id: r.id,
-        type: 'exercise',
-        studentId: r.studentId || '',
-        studentName: studentName(r.studentId || ''),
-        date: r.date,
-        exerciseType: r.type,
-        duration: r.duration,
-        intensity: r.intensity,
-        photos: r.photos,
-        videoUrls: r.videoUrls,
-      });
-    });
 
   // 按时间倒序
   return items.sort((a, b) => b.date.localeCompare(a.date));
@@ -116,7 +104,6 @@ const filteredItems = computed(() => {
 const countByType = computed(() => ({
   diet: allItems.value.filter((i) => i.type === 'diet').length,
   weight: allItems.value.filter((i) => i.type === 'weight').length,
-  exercise: allItems.value.filter((i) => i.type === 'exercise').length,
 }));
 
 // 按学员分组统计（基于当前筛选结果）
@@ -179,7 +166,6 @@ const openRecord = (item: UnifiedItem) => {
 const typeConfig: Record<ItemType, { label: string; bg: string; text: string; icon: typeof Activity }> = {
   diet: { label: '饮食', bg: 'bg-[#FF976A]/10', text: 'text-[#FF976A]', icon: Coffee },
   weight: { label: '体重', bg: 'bg-[#07C160]/10', text: 'text-[#07C160]', icon: Scale },
-  exercise: { label: '运动', bg: 'bg-blue-50', text: 'text-blue-600', icon: Activity },
 };
 </script>
 
@@ -216,13 +202,6 @@ const typeConfig: Record<ItemType, { label: string; bg: string; text: string; ic
         >
           <div class="text-lg font-bold text-[#07C160]">{{ countByType.weight }}</div>
           <div class="text-[10px] text-gray-500">体重待批注</div>
-        </div>
-        <div
-          :class="['rounded-xl p-3 text-center border transition-all cursor-pointer', activeFilter === 'exercise' ? 'border-blue-400 bg-blue-50' : 'border-gray-100 bg-white']"
-          @click="activeFilter = activeFilter === 'exercise' ? 'all' : 'exercise'"
-        >
-          <div class="text-lg font-bold text-blue-600">{{ countByType.exercise }}</div>
-          <div class="text-[10px] text-gray-500">运动待批注</div>
         </div>
       </div>
 
@@ -294,16 +273,12 @@ const typeConfig: Record<ItemType, { label: string; bg: string; text: string; ic
                       {{ typeConfig[item.type].label }}
                     </span>
                     <span v-if="item.type === 'diet' && item.meal" class="text-[10px] text-gray-500">{{ item.meal }}</span>
-                    <span v-if="item.type === 'exercise'" class="text-[10px] text-gray-500">{{ item.exerciseType }}</span>
                   </div>
                   <span class="text-[10px] text-gray-400">{{ item.date.substring(5, 16) }}</span>
                 </div>
                 <div v-if="item.type === 'diet'" class="text-xs text-gray-700 line-clamp-1">{{ item.description }}</div>
                 <div v-else-if="item.type === 'weight'" class="text-sm font-bold text-gray-900">{{ item.weight }} <span class="text-xs font-normal text-gray-400">kg</span></div>
-                <div v-else-if="item.type === 'exercise'" class="text-xs text-gray-700">
-                  {{ item.duration }}分钟 · 强度 {{ item.intensity }}/5
-                  <span v-if="item.videoUrls && item.videoUrls.length > 0" class="ml-1 text-blue-500">有视频</span>
-                </div>
+
               </div>
             </div>
           </div>
@@ -371,7 +346,7 @@ const typeConfig: Record<ItemType, { label: string; bg: string; text: string; ic
         <template #icon><Users class="h-6 w-6" /></template>
         首页
       </VanTabbarItem>
-      <VanTabbarItem>
+      <VanTabbarItem :badge="unannotatedCount > 0 ? unannotatedCount : undefined">
         <template #icon><FileText class="h-6 w-6" /></template>
         批注
       </VanTabbarItem>
