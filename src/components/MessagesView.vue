@@ -119,16 +119,16 @@ const commentMessages = computed<MessageItem[]>(() => {
   const wrap = (r: any, type: 'diet' | 'exercise' | 'weight'): MessageItem => ({
     id: `${type}-${r.id}`,
     type: 'comment',
-    date: r.dietitianCommentDate || r.date,
-    title: `${r.dietitianName || '营养师'} 批注了你的${type === 'diet' ? '饮食' : type === 'exercise' ? '运动' : '体重'}打卡`,
-    body: r.dietitianComment,
+    date: r.dietitianCommentDate || r.coachCommentDate || r.date,
+    title: `${r.dietitianName || r.coachName || '老师'} 批注了你的${type === 'diet' ? '饮食' : type === 'exercise' ? '运动' : '体重'}打卡`,
+    body: r.dietitianComment || r.coachComment,
     unread: !r.commentRead,
     targetView: type === 'diet' ? 'diet' : type === 'exercise' ? 'exercise' : 'weight-checkin',
     targetDate: (r.date || '').substring(0, 10),
   });
   return [
     ...campDietRecs.value.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'diet')),
-    ...campExRecs.value.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'exercise')),
+    ...campExRecs.value.filter((r) => isMine(r) && r.coachComment).map((r) => wrap(r, 'exercise')),
     ...campWtRecs.value.filter((r) => isMine(r) && r.dietitianComment).map((r) => wrap(r, 'weight')),
   ];
 });
