@@ -13,8 +13,8 @@ import type { ExerciseRecord } from '../types';
 const exercisePoints = (record: ExerciseRecord): number => {
   let pts = 0;
   if (record.duration >= 40) pts += 1;
-  if (record.dietitianScore === 2) pts += 2;
-  else if (record.dietitianScore === 1) pts += 1;
+  if (record.coachScore === 2) pts += 2;
+  else if (record.coachScore === 1) pts += 1;
   return pts;
 };
 
@@ -474,9 +474,9 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-            <div v-if="ex.dietitianComment" class="mt-2 p-2.5 bg-[#07C160]/5 rounded-lg border border-[#07C160]/10">
+            <div v-if="ex.coachComment" class="mt-2 p-2.5 bg-[#07C160]/5 rounded-lg border border-[#07C160]/10">
               <span class="text-xs font-bold text-[#07C160]">批注</span>
-              <p class="text-sm text-gray-700 mt-0.5">{{ ex.dietitianComment }}</p>
+              <p class="text-sm text-gray-700 mt-0.5">{{ ex.coachComment }}</p>
             </div>
           </div>
         </div>
