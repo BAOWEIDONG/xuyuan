@@ -8,6 +8,16 @@ import { computeWeightMilestones, computeWeeklyChallenges, computeLuckyDraw } fr
 
 const store = useAppStore();
 
+// ─── 待批注数量（与首页一致，显示在底部 Tabbar 徽标） ───
+const unannotatedCount = computed(() => {
+  const activeCampId = store.selectedCampId;
+  const dietRecords = activeCampId ? store.getCampDietRecords(activeCampId) : store.dietRecords;
+  const weightRecords = activeCampId ? store.getCampWeightRecords(activeCampId) : store.weightRecords;
+  const diet = dietRecords.filter((r) => !r.dietitianComment && r.dietitianScore == null).length;
+  const weight = weightRecords.filter((r) => !r.dietitianComment).length;
+  return diet + weight;
+});
+
 // ─── 发放中心待处理条数 ───
 const pendingAuditCount = computed(() => {
   let count = 0;
@@ -128,7 +138,7 @@ const configItems = computed<ConfigItem[]>(() => [
         <template #icon><Users class="h-6 w-6" /></template>
         首页
       </VanTabbarItem>
-      <VanTabbarItem @click="store.setCurrentView('dietitian-unannotated-list')">
+      <VanTabbarItem @click="store.setCurrentView('dietitian-unannotated-list')" :badge="unannotatedCount > 0 ? unannotatedCount : undefined">
         <template #icon><FileText class="h-6 w-6" /></template>
         批注
       </VanTabbarItem>
