@@ -36,8 +36,7 @@ const campManualRecords = computed(() => activeCampId.value ? store.getCampManua
 const unannotatedCount = computed(() => {
   const diet = campDietRecords.value.filter((r) => !r.dietitianComment && r.dietitianScore == null).length;
   const weight = campWeightRecords.value.filter((r) => !r.dietitianComment).length;
-  const exercise = campExerciseRecords.value.filter((r) => !r.dietitianComment).length;
-  return diet + weight + exercise;
+  return diet + weight;
 });
 
 const _now = new Date();
